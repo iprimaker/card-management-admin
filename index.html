@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>カードアルバム管理</title>
+    <link rel="icon" href="./favicon.svg" />
+    <link rel="stylesheet" href="./admin.css" />
+    <script src="./startup.js"></script>
+    <script defer src="./vendor/supabase.js"></script>
+    <script defer src="./config.js"></script>
+    <script defer src="./admin.js"></script>
+  </head>
+  <body>
+    <header>
+      <strong>カードアルバム管理</strong>
+      <div id="admin-nav" hidden>
+        <button data-page="cards" class="active">カード情報</button
+        ><button data-page="users">登録者</button
+        ><button data-page="logs">修正履歴</button
+        ><button data-page="contacts">お問い合わせ</button
+        ><button id="admin-logout">ログアウト</button>
+      </div>
+    </header>
+    <main>
+      <section id="startup-panel" class="login-panel" aria-live="polite">
+        <p id="startup-message">管理者アプリを起動中…</p>
+        <div id="startup-actions" hidden>
+          <button id="startup-retry" type="button">再読み込み</button>
+          <button id="startup-reset" type="button">
+            ログイン状態をリセット
+          </button>
+          <p>
+            ZIPを解凍し、index.htmlと同じ階層に各JSファイルとvendorフォルダを配置してください。
+          </p>
+        </div>
+      </section>
+      <noscript
+        ><p>管理者アプリを使うにはJavaScriptを有効にしてください。</p></noscript
+      >
+      <section id="admin-auth" class="login-panel">
+        <span class="eyebrow">ADMINISTRATION</span>
+        <h1>管理者ログイン</h1>
+        <p>管理者権限のあるアカウントでログインしてください。</p>
+        <form id="admin-login">
+          <label
+            >メールアドレス<input
+              id="admin-email"
+              type="email"
+              autocomplete="username"
+              required /></label
+          ><label
+            >パスワード<input
+              id="admin-password"
+              type="password"
+              autocomplete="current-password"
+              required /></label
+          ><button class="primary" id="admin-submit" disabled>ログイン</button>
+        </form>
+        <p id="admin-auth-message" role="status"></p>
+        <button id="auth-reset" type="button">
+          保存済みログイン状態をリセット
+        </button>
+        <a id="public-site-link" href="../">一般サイトへ</a>
+      </section>
+      <section id="admin-app" hidden>
+        <p id="admin-account"></p>
+        <section id="admin-cards">
+          <div class="section-heading">
+            <h1>カード情報の修正</h1>
+            <button id="reload-cards">更新</button>
+          </div>
+          <p>
+            保存した修正内容は自動取得より優先されます。所持記録のIDは維持されます。
+          </p>
+          <div class="search-row">
+            <input
+              id="admin-query"
+              type="search"
+              aria-label="カード名・コードで検索"
+              placeholder="カード名・コードで検索"
+            /><select id="admin-game" aria-label="作品">
+              <option value="">すべて</option>
+              <option value="aikatsu">アイカツ！アンコール</option>
+              <option value="aipri">アイプリ</option>
+            </select>
+          </div>
+          <p id="admin-count"></p>
+          <div id="admin-card-list" class="admin-card-list"></div>
+          <div class="pagination">
+            <button id="card-prev">前へ</button><span id="card-page"></span
+            ><button id="card-next">次へ</button>
+          </div>
+        </section>
+        <section id="admin-users" hidden>
+          <div class="section-heading">
+            <h1>登録者の確認</h1>
+            <button id="reload-users">更新</button>
+          </div>
+          <p>運営に必要な範囲でご確認ください。</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ニックネーム・メール</th>
+                  <th>登録日時</th>
+                  <th>最終ログイン</th>
+                  <th>確認状態</th>
+                  <th>所持数</th>
+                </tr>
+              </thead>
+              <tbody id="user-list"></tbody>
+            </table>
+          </div>
+          <div class="pagination">
+            <button id="user-prev">前へ</button><span id="user-page"></span
+            ><button id="user-next">次へ</button>
+          </div>
+        </section>
+        <section id="admin-logs" hidden>
+          <div class="section-heading">
+            <h1>修正履歴</h1>
+            <button id="reload-logs">更新</button>
+          </div>
+          <div id="log-list"></div>
+        </section>
+        <section id="admin-contacts" hidden>
+          <div class="section-heading">
+            <h1>お問い合わせ</h1>
+            <button id="reload-contacts">更新</button>
+          </div>
+          <div class="contact-filter">
+            <label
+              >対応状況<select id="contact-status-filter">
+                <option value="all">すべて</option>
+                <option value="new">未対応</option>
+                <option value="working">対応中</option>
+                <option value="done">対応済み</option>
+              </select></label
+            >
+          </div>
+          <div id="contact-list"></div>
+          <div class="pagination">
+            <button id="contact-prev">前へ</button
+            ><span id="contact-page"></span
+            ><button id="contact-next">次へ</button>
+          </div>
+        </section>
+        <p id="admin-message" role="status"></p>
+      </section>
+    </main>
+    <dialog id="edit-dialog" aria-labelledby="edit-title">
+      <form id="edit-form">
+        <div class="section-heading">
+          <h2 id="edit-title">カード情報を編集</h2>
+          <button id="edit-close" type="button" aria-label="閉じる">×</button>
+        </div>
+        <p id="edit-id" class="muted"></p>
+        <div class="editor-preview">
+          <img id="edit-image" alt="カード表面" />
+          <div id="edit-fields" class="edit-fields"></div>
+        </div>
+        <p id="edit-message" role="status"></p>
+        <div class="editor-actions">
+          <button id="override-remove" type="button">修正を解除</button
+          ><button id="edit-save" class="primary">修正を保存</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="confirm-dialog">
+      <h2>修正を解除しますか？</h2>
+      <p>自動取得した情報に戻ります。所持記録は保持します。</p>
+      <div class="editor-actions">
+        <button id="confirm-cancel">戻る</button
+        ><button id="confirm-remove" class="danger">解除する</button>
+      </div>
+    </dialog>
+  </body>
+</html>
