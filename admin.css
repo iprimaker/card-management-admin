@@ -1,3099 +1,2854 @@
-(async () => {
-  let startupTimer;
-  try {
-    const $ = (id) => document.getElementById(id);
-    const esc = (value) =>
-      String(value ?? "").replace(
-        /[&<>"']/g,
-        (c) =>
-          ({
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "'": "&#39;",
-          })[c],
-      );
-    const config = window.APP_CONFIG;
-    if (
-      !config ||
-      !/^https:\/\/[^/]+\.supabase\.co\/?$/.test(config.supabaseUrl || "") ||
-      !config.supabaseKey
-    ) {
-      throw Error("config.js のSupabase URL・公開キーを確認してください。");
-    }
-    if (!window.supabase?.createClient) {
-      throw Error(
-        "vendor/supabase.js を読み込めません。vendorフォルダも公開先に配置してください。",
-      );
-    }
-    let lastConnectionFailure = "";
-    const errorText = (error) => {
-      const detail = error?.message || String(error || "不明なエラー");
-      if (/abort|timeout/i.test(detail))
-        return "通信がタイムアウトしました。接続を確認して再試行してください。";
-      if (/failed to fetch|network|load failed/i.test(detail))
-        return (
-          "Supabaseに接続できません。「接続診断」を実行してください。" +
-          (lastConnectionFailure ? " 通信先：" + lastConnectionFailure : "")
-        );
-      if (/PGRST202|42883/.test(error?.code || "")) {
-        return "01-schema.sqlの設定を確認してください。詳細：" + detail;
-      }
-      if (/email not confirmed/i.test(detail))
-        return "一般サイトで届いた確認メールを開き、メール確認を完了してください。";
-      return detail;
-    };
-    let persistSession = true;
-    try {
-      const key = "card-album-admin-storage-check";
-      localStorage.setItem(key, "1");
-      localStorage.removeItem(key);
-    } catch {
-      persistSession = false;
-    }
-    let forceAdminLogin = () => {};
-    async function boundedFetch(input, init = {}) {
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      if (init.signal?.aborted) abort();
-      else init.signal?.addEventListener("abort", abort, { once: true });
-      const timer = setTimeout(abort, 20000);
-      try {
-        const response = await fetch(input, {
-          ...init,
-          signal: controller.signal,
-        });
-        if (response.status === 401 || response.status === 403)
-          queueMicrotask(() => forceAdminLogin());
-        else if (!response.ok) {
-          try {
-            const detail = await response.clone().json();
-            if (
-              detail.code === "42501" ||
-              /管理者権限が必要|ログインが必要|認証が必要/.test(
-                detail.message || "",
-              )
-            )
-              queueMicrotask(() => forceAdminLogin());
-          } catch {}
-        }
-        return response;
-      } catch (error) {
-        try {
-          lastConnectionFailure = new URL(
-            typeof input === "string" || input instanceof URL
-              ? input
-              : input.url,
-          ).pathname;
-        } catch {
-          lastConnectionFailure = "不明";
-        }
-        throw error;
-      } finally {
-        clearTimeout(timer);
-        init.signal?.removeEventListener("abort", abort);
-      }
-    }
-    if (config.publicSiteUrl) $("public-site-link").href = config.publicSiteUrl;
-    else $("public-site-link").hidden = true;
-    const db = window.supabase.createClient(
-      config.supabaseUrl,
-      config.supabaseKey,
-      {
-        auth: {
-          storageKey:
-            "card-album-admin-auth:" +
-            new URL(config.supabaseUrl).hostname.split(".")[0],
-          detectSessionInUrl: false,
-          persistSession,
-        },
-        global: { fetch: boundedFetch },
-      },
-    );
-    let session = null,
-      authorized = false,
-      generation = 0,
-      cardPage = 1,
-      userPage = 1,
-      editing = null;
-    let contactPage = 1;
-    let usageSnapshot = null,
-      usageFetchedAt = 0,
-      usageBusy = false,
-      detailsBusy = false,
-      detailsFetchedAt = 0;
-    let syncProgressTimer = null,
-      syncProgressBusy = false,
-      syncRequestedUntil = 0;
-    let notificationTimer = null,
-      notificationBusy = false,
-      userRows = new Map(),
-      deletingUser = null;
-    let usersRequest = 0,
-      contactsRequest = 0,
-      cardsRequest = 0;
-    let catalogFetchedAt = 0;
-    let catalogCache = null,
-      catalogFlight = null,
-      catalogRevision = 0;
-    let accessFlight = null,
-      accessUser = null;
-    let notificationFetchedAt = 0;
-    let baseCards = [],
-      overrides = new Map();
-    const pageSize = 24;
-    const arrayFields = new Set([
-      "series",
-      "type",
-      "category",
-      "brand",
-      "songs",
-    ]);
-    const labels = {
-      name: "カード名",
-      code: "カードコード",
-      rarity: "レアリティ",
-      character: "キャラクター",
-      series: "弾数",
-      type: "タイプ",
-      category: "カテゴリ",
-      brand: "ブランド",
-      songs: "遊べる曲",
-      family: "アイプリの種類",
-      variant: "カードの種類",
-      front: "表面画像URL",
-      back: "裏面画像URL",
-    };
-    const timestamp = (value) =>
-      value
-        ? new Date(value).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
-        : "—";
-    const message = (text) => {
-      $("admin-message").textContent = text;
-    };
-    function hidePrivateData() {
-      clearMfaPanel();
-      authorized = false;
-      usersRefreshBusy = false;
-      clearTimeout(userSearchTimer);
-      usersRequest++;
-      contactsRequest++;
-      cardsRequest++;
-      catalogCache = null;
-      catalogFetchedAt = 0;
-      catalogFlight = null;
-      catalogRevision++;
-      notificationFetchedAt = 0;
-      clearInterval(notificationTimer);
-      clearInterval(syncProgressTimer);
-      trafficLoadedAt = 0;
-      syncRequestedUntil = 0;
-      $("sync-progress-status").textContent = "";
-      $("sync-progress-counts").replaceChildren();
-      $("sync-progress-time").textContent = "";
-      userRows.clear();
-      usageSnapshot = null;
-      usageFetchedAt = detailsFetchedAt = 0;
-      for (const id of [
-        "usage-detail-cards",
-        "usage-detail-stats",
-        "usage-detail-tables",
-        "usage-detail-cron",
-        "usage-detail-http",
-      ])
-        $(id).replaceChildren();
-      $("usage-detail-period").textContent = "";
-      $("usage-details-message").textContent =
-        "必要なときだけ詳細を取得します。";
-
-      deletingUser = null;
-      $("contact-alert").hidden = true;
-      baseCards = [];
-      pendingEpoch++;
-      pendingRows = [];
-      pendingLoaded = false;
-      pendingFlight = null;
-      editingPending = publishingPending = null;
-      $("pending-fields").replaceChildren();
-      $("pending-note").value = "";
-      $("pending-evidence-url").value = "";
-      $("pending-evidence-note").value = "";
-      $("pending-reason").textContent = "";
-      $("pending-target").textContent = "";
-      $("pending-message").textContent = "";
-      $("pending-confirm-name").textContent = "";
-      $("pending-confirm-message").textContent = "";
-      announcementRequest++;
-      announcementRows.clear();
-      announcementEditing = announcementDeleting = null;
-      announcementPage = 0;
-      $("announcement-list").replaceChildren();
-      $("announcement-form").reset();
-      $("announcement-delete-name").textContent = "";
-      $("announcement-save-message").textContent = "";
-      overrides.clear();
-      editing = null;
-      verseRequest++;
-      verseHistoryRequest++;
-      verseRows.clear();
-      contactRows.clear();
-      verseEditing = contactDeleting = null;
-      $("verse-admin-list").replaceChildren();
-      $("verse-history-list").replaceChildren();
-      $("verse-editor-fields").replaceChildren();
-      for (const id of ["verse-editor-dialog", "contact-delete-dialog"])
-        if ($(id).open) $(id).close();
-      cardPage = userPage = contactPage = 1;
-      $("admin-account").textContent = "";
-      message("");
-      $("admin-app").hidden = true;
-      $("admin-nav").hidden = true;
-      $("admin-auth").hidden = false;
-      for (const id of [
-        "user-list",
-        "log-list",
-        "admin-card-list",
-        "contact-list",
-        "usage-cards",
-        "usage-tables",
-        "traffic-totals",
-        "traffic-chart",
-      ])
-        $(id).replaceChildren();
-      for (const id of [
-        "edit-dialog",
-        "pending-dialog",
-        "announcement-dialog",
-        "announcement-delete-dialog",
-        "pending-confirm-dialog",
-        "confirm-dialog",
-        "delete-user-dialog",
-      ])
-        if ($(id).open) $(id).close();
-    }
-    let mfaOwner = null;
-    let mfaFactor = null;
-    let mfaPendingFactor = null;
-    let mfaBusy = false;
-    function sessionAal(next) {
-      try {
-        const payload = next.access_token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
-        return JSON.parse(atob(payload)).aal;
-      } catch { return null; }
-    }
-    function clearMfaPanel() {
-      document.getElementById('admin-mfa-panel')?.remove();
-      if ($('admin-login')) $('admin-login').hidden = false;
-      mfaOwner = mfaFactor = mfaPendingFactor = null;
-      mfaBusy = false;
-    }
-    async function ensureAdminMfa() {
-      const user = session?.user?.id;
-      if (!user) return false;
-      const level = await db.auth.mfa.getAuthenticatorAssuranceLevel();
-      if (level.error) throw level.error;
-      if (session?.user?.id !== user) return false;
-      if (level.data?.currentLevel === 'aal2') { clearMfaPanel(); return true; }
-      const factors = await db.auth.mfa.listFactors();
-      if (factors.error) throw factors.error;
-      if (session?.user?.id !== user) return false;
-      const verified = (factors.data?.totp || []).filter(f => f.status === 'verified');
-      clearMfaPanel();
-      mfaOwner = user;
-      mfaFactor = verified[0]?.id || null;
-      $('admin-login').hidden = true;
-      const panel = document.createElement('section');
-      panel.id = 'admin-mfa-panel';
-      panel.className = 'admin-mfa-panel';
-      panel.innerHTML = '<span class="eyebrow">SECURITY</span><h2>管理者の２段階認証</h2><p data-mfa-help></p><div data-mfa-enrollment hidden><img data-mfa-qr alt="認証アプリ登録用のQRコード"><label>手動登録用キー<input data-mfa-secret type="text" readonly autocomplete="off" spellcheck="false"></label><small>QRコードやキーは他の人に送らないでください。認証アプリのバックアップ方法も確認してください。</small></div><label data-mfa-factor-wrap hidden>認証アプリ<select data-mfa-factor></select></label><button type="button" class="primary" data-mfa-enroll>認証アプリを登録する</button><form data-mfa-form hidden><label>認証アプリの６桁コード<input data-mfa-code type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><button type="submit" class="primary" data-mfa-verify>コードを確認して進む</button></form><p data-mfa-message role="status"></p><button type="button" data-mfa-cancel>ログアウトして戻る</button>';
-      $('admin-auth-message').before(panel);
-      const find = q => panel.querySelector(q);
-      const alive = () => session?.user?.id === user && mfaOwner === user && panel.isConnected;
-      find('[data-mfa-help]').textContent = verified.length
-        ? '登録済みの認証アプリを開き、表示されるコードを入力してください。'
-        : '認証アプリでQRコードを読み取り、表示される６桁コードを入力します。登録前に管理データは表示しません。';
-      find('[data-mfa-enroll]').hidden = verified.length > 0;
-      find('[data-mfa-form]').hidden = verified.length === 0;
-      for (const factor of verified) {
-        const option = document.createElement('option');
-        option.value = factor.id;
-        option.textContent = factor.friendly_name || '認証アプリ';
-        find('[data-mfa-factor]').append(option);
-      }
-      find('[data-mfa-factor-wrap]').hidden = verified.length < 2;
-      find('[data-mfa-factor]').onchange = e => { mfaFactor = e.target.value; };
-      function setBusy(value) {
-        mfaBusy = value;
-        panel.querySelectorAll('button,input,select').forEach(node => node.disabled = value);
-      }
-      find('[data-mfa-enroll]').onclick = async () => {
-        if (!alive() || mfaBusy) return;
-        setBusy(true);
-        find('[data-mfa-message]').textContent = '登録の準備中…';
-        try {
-          // 同じ画面が以前に発行した未確認の因子のみ整理。確認済みの因子は削除しません。
-          for (const factor of (factors.data?.all || [])) {
-            if (factor.status === 'unverified' && factor.factor_type === 'totp' && factor.friendly_name === 'カードアルバム運営') {
-              const removed = await db.auth.mfa.unenroll({ factorId: factor.id });
-              if (removed.error) throw removed.error;
-              if (!alive()) return;
-            }
-          }
-          const enrolled = await db.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'カードアルバム運営', issuer: 'カードアルバム' });
-          if (enrolled.error) throw enrolled.error;
-          if (!alive()) return;
-          mfaFactor = mfaPendingFactor = enrolled.data.id;
-          const qr = enrolled.data.totp?.qr_code;
-          if (typeof qr !== 'string' || !enrolled.data.totp?.secret) throw Error('登録用の情報を取得できませんでした。');
-          find('[data-mfa-qr]').src = qr.startsWith('data:image/svg+xml') ? qr : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(qr);
-          find('[data-mfa-secret]').value = enrolled.data.totp.secret;
-          find('[data-mfa-enrollment]').hidden = false;
-          find('[data-mfa-enroll]').hidden = true;
-          find('[data-mfa-form]').hidden = false;
-          find('[data-mfa-message]').textContent = '認証アプリに登録したら、コードを入力してください。';
-        } catch {
-          if (alive()) find('[data-mfa-message]').textContent = '準備できませんでした。接続とSupabaseのTOTP設定を確認し、ログインし直してください。';
-        } finally { if (alive()) setBusy(false); }
-      };
-      find('[data-mfa-form]').onsubmit = async event => {
-        event.preventDefault();
-        if (!alive() || mfaBusy) return;
-        const code = find('[data-mfa-code]').value.normalize('NFKC').trim();
-        if (!/^\d{6}$/.test(code) || !mfaFactor) { find('[data-mfa-message]').textContent = '６桁のコードを入力してください。'; return; }
-        setBusy(true);
-        find('[data-mfa-message]').textContent = 'コードを確認中…';
-        try {
-          const challenge = await db.auth.mfa.challenge({ factorId: mfaFactor });
-          if (challenge.error) throw challenge.error;
-          if (!alive()) return;
-          const verification = await db.auth.mfa.verify({ factorId: mfaFactor, challengeId: challenge.data.id, code });
-          find('[data-mfa-code]').value = '';
-          if (verification.error) throw verification.error;
-          if (!alive()) return;
-          const current = await db.auth.getSession();
-          if (current.error) throw current.error;
-          if (current.data?.session?.user?.id !== user) return;
-          mfaPendingFactor = null;
-          clearMfaPanel();
-          await checkAccess(current.data.session);
-        } catch {
-          if (alive()) { find('[data-mfa-code]').value = ''; find('[data-mfa-message]').textContent = '確認できませんでした。認証アプリの新しいコードを入力してください。'; }
-        } finally { if (alive()) setBusy(false); }
-      };
-      find('[data-mfa-cancel]').onclick = async () => {
-        if (!alive() || mfaBusy) return;
-        setBusy(true);
-        try {
-          if (mfaPendingFactor) await db.auth.mfa.unenroll({ factorId: mfaPendingFactor });
-          await db.auth.signOut({ scope: 'local' });
-        } finally {
-          if (session?.user?.id === user || !session) {
-            generation++;
-            session = null;
-            hidePrivateData();
-            clearMfaPanel();
-          }
-        }
-      };
-      $('admin-auth-message').textContent = '';
-      return false;
-    }
-    const mfaStyle = document.createElement('style');
-    mfaStyle.textContent = '.admin-mfa-panel{margin:22px 0;padding:20px;border:1px solid var(--line,#e8dfe9);border-radius:20px;background:var(--soft,#faf6fb)}.admin-mfa-panel h2{margin:6px 0 10px;font-size:19px}.admin-mfa-panel p,.admin-mfa-panel small{font-size:12px;line-height:1.8}.admin-mfa-panel label{display:grid;gap:7px;margin:14px 0;font-size:12px}.admin-mfa-panel input,.admin-mfa-panel select{box-sizing:border-box;width:100%;min-width:0;font-size:16px;padding:12px;border-radius:11px;border:1px solid #ddd5df;background:white;color:inherit}.admin-mfa-panel [data-mfa-code]{text-align:center;letter-spacing:.3em}.admin-mfa-panel [data-mfa-qr]{display:block;width:min(220px,100%);height:auto;margin:16px auto}.admin-mfa-panel [data-mfa-secret]{font-size:16px;font-family:monospace;letter-spacing:.03em}.admin-mfa-panel button{width:100%;margin-top:10px}.admin-mfa-panel [data-mfa-cancel]{background:transparent;box-shadow:none;font-size:12px}.admin-mfa-panel [hidden]{display:none!important}';
-    document.head.append(mfaStyle);
-
-    function checkAccess(next) {
-      const uid = next?.user?.id;
-      if (authorized && uid && uid === session?.user?.id && sessionAal(next) === "aal2") {
-        session = next;
-        return Promise.resolve();
-      }
-      if (accessFlight && accessUser === uid) return accessFlight;
-      accessUser = uid;
-      const flight = checkAccessUnsafe(next);
-      accessFlight = flight;
-      flight
-        .finally(() => {
-          if (accessFlight === flight) {
-            accessFlight = null;
-            accessUser = null;
-          }
-        })
-        .catch(() => {});
-      return flight;
-    }
-    async function checkAccessUnsafe(next) {
-      const current = ++generation;
-      session = next;
-      hidePrivateData();
-      if (!session) {
-        requireAdminAction();
-        return;
-      }
-      $("admin-auth-message").textContent = "管理者権限を確認中…";
-      let result;
-      try {
-        result = await db.rpc("card_admin_mfa_identity");
-      } catch (error) {
-        if (current === generation)
-          $("admin-auth-message").textContent = errorText(error);
-        return;
-      }
-      const { data, error } = result;
-      if (current !== generation) return;
-      if (error || data !== true) {
-        $("admin-auth-message").textContent = error
-          ? "権限を確認できません。" + errorText(error)
-          : "このアカウントには管理者権限がありません。管理者権限の移行・設定を確認してください。";
-        return;
-      }
-      try {
-        if (!(await ensureAdminMfa()) || current !== generation) return;
-        const finalCheck = await db.rpc("is_card_admin");
-        if (current !== generation) return;
-        if (finalCheck.error || finalCheck.data !== true) throw Error("管理者権限を確認できませんでした。");
-      } catch (error) {
-        if (current === generation) $("admin-auth-message").textContent = errorText(error);
-        return;
-      }
-      $("admin-auth-message").textContent = "";
-      authorized = true;
-      adminPresenceLoggingOut = false;
-      adminPresenceSent = 0;
-      recordAdminPresence();
-      $("admin-auth").hidden = true;
-      $("admin-app").hidden = false;
-      $("admin-nav").hidden = false;
-      $("admin-account").textContent =
-        (session.user.user_metadata?.nickname || "管理者") + "の管理画面";
-      cardPage = 1;
-      showPage("users");
-      refreshContactNotification();
-      notificationTimer = null;
-    }
-    async function readAll(table, columns) {
-      const rows = [];
-      let offset = 0;
-      while (true) {
-        const { data, error } = await db
-          .from(table)
-          .select(columns)
-          .order(table === "card_catalog" ? "id" : "card_id")
-          .range(offset, offset + 499);
-        if (error) throw error;
-        if (!Array.isArray(data)) throw Error(table + " の応答が不正です。");
-        rows.push(...data);
-        if (data.length < 500) break;
-        offset += 500;
-      }
-      return rows;
-    }
-    async function getCatalog(force = false) {
-      if (force) window.PUBLIC_CATALOG_CACHE.invalidate();
-      const result = await window.PUBLIC_CATALOG_CACHE.load(db);
-      catalogCache = result;
-      catalogFetchedAt = Date.now();
-      return { result, revision: catalogRevision };
-    }
-    function invalidateCatalog() {
-      window.PUBLIC_CATALOG_CACHE.invalidate();
-      catalogRevision++;
-      catalogCache = null;
-      catalogFetchedAt = 0;
-      catalogFlight = null;
-      cardsRequest++;
-    }
-    async function loadCards(force = false) {
-      if (!authorized) return;
-      const current = generation,
-        request = ++cardsRequest;
-      message("カード情報を読み込み中…");
-      try {
-        const { result, revision } = await getCatalog(force);
-        if (
-          current !== generation ||
-          request !== cardsRequest ||
-          revision !== catalogRevision ||
-          !authorized
-        )
-          return;
-        baseCards = result.cards.filter(
-          (card) => card && typeof card.id === "string",
-        );
-        overrides = new Map(result.overrides.map((r) => [r.card_id, r.patch]));
-        renderCards();
-        await refreshSyncProgress();
-        message(
-          baseCards.length
-            ? ""
-            : "カードが未登録です。移行またはカード追加SQLを実行してください。",
-        );
-      } catch (e) {
-        if (current === generation && request === cardsRequest && authorized)
-          message("読み込めませんでした。" + errorText(e));
-      }
-    }
-    function combined(card) {
-      return { ...card, ...(overrides.get(card.id) || {}) };
-    }
-    function missingCardText(value) {
-      const text =
-        typeof value === "string" ? value.normalize("NFKC").trim() : "";
-      return (
-        !text ||
-        /^(?:記載なし|未(?:取得|登録|設定|確認)|(?:カード名|キャラクター|曲名|カードコード|コード|AP)(?:未(?:取得|登録|設定|確認)|なし))$/.test(
-          text,
-        )
-      );
-    }
-    function missingCardFields(card, includeBack = false) {
-      const fields = [];
-      if (missingCardText(card.name)) fields.push(["name", "カード名"]);
-      if (missingCardText(card.code)) fields.push(["code", "カードコード"]);
-      if (missingCardText(card.character))
-        fields.push(["character", "キャラクター"]);
-      if (missingCardText(card.rarity)) fields.push(["rarity", "レアリティ"]);
-      if (missingCardText(card.front)) fields.push(["front", "表面画像"]);
-      if (
-        card.game === "aipri" &&
-        (!Array.isArray(card.songs) ||
-          !card.songs.some((song) => !missingCardText(song)))
-      )
-        fields.push(["songs", "曲名"]);
-      if (
-        card.game === "aikatsu" &&
-        !(
-          typeof card.ap === "number" &&
-          Number.isInteger(card.ap) &&
-          card.ap >= 0
-        )
-      )
-        fields.push(["ap", "AP"]);
-      if (includeBack && missingCardText(card.back))
-        fields.push(["back", "裏面画像"]);
-      return fields;
-    }
-    function matchesMissingCardFilter(card, mode) {
-      if (!mode || mode === "all") return true;
-      const missing = missingCardFields(card, mode === "back");
-      return mode === "missing"
-        ? missing.length > 0
-        : missing.some(([key]) => key === mode);
-    }
-    function missingCardBadge(card) {
-      const missing = missingCardFields(
-        card,
-        $("admin-missing")?.value === "back",
-      );
-      return missing.length
-        ? `<span class="missing-fields-badge">未登録：${esc(missing.map(([, label]) => label).join("・"))}</span>`
-        : "";
-    }
-
-    function cardResults() {
-      const query = $("admin-query")
-          .value.normalize("NFKC")
-          .toLowerCase()
-          .trim(),
-        game = $("admin-game").value,
-        missingMode = $("admin-missing").value;
-      const state = $("admin-state").value;
-      const registered = state === "pending" ? [] : baseCards.map(combined);
-      const drafts =
-        state === "registered"
-          ? []
-          : pendingRows
-              .filter((row) => isUnregisteredCandidate(row.card))
-              .map((row) => ({ ...row.card, _pendingId: row.id }));
-      return [...registered, ...drafts].filter(
-        (c) =>
-          (!game || c.game === game) &&
-          matchesMissingCardFilter(c, missingMode) &&
-          (!query ||
-            [c.id, c.code, c.name, c.character]
-              .join(" ")
-              .normalize("NFKC")
-              .toLowerCase()
-              .includes(query)),
-      );
-    }
-    function renderCards() {
-      const cards = cardResults();
-      cardPage = Math.min(
-        cardPage,
-        Math.max(1, Math.ceil(cards.length / pageSize)),
-      );
-      $("admin-count").textContent = `${cards.length}件`;
-      $("admin-card-list").innerHTML = cards
-        .slice((cardPage - 1) * pageSize, cardPage * pageSize)
-        .map(
-          (c) =>
-            `<article class="admin-card">${c.front ? `<img src="${esc(c.front)}" alt="${esc(c.name || c.code)}" loading="lazy">` : '<div class="pending-no-image">画像未登録</div>'}<p class="muted">${esc(c.code)} · ${esc(c.rarity)}</p><p>${esc(c.name || "カード名未設定")}</p>${overrides.has(c.id) ? '<span class="override-badge">修正を適用中</span>' : ""}${missingCardBadge(c)}${c._pendingId ? `<span class="pending-badge">SQL保留・根拠確認待ち</span><button data-pending-edit="${esc(c._pendingId)}">編集・正式登録</button>` : `<button data-edit="${esc(c.id)}">情報を編集</button>`}</article>`,
-        )
-        .join("");
-      $("card-page").textContent =
-        `${cardPage} / ${Math.max(1, Math.ceil(cards.length / pageSize))}`;
-      $("card-prev").disabled = cardPage === 1;
-      $("card-next").disabled = cardPage * pageSize >= cards.length;
-    }
-    function openEditor(id) {
-      const base = baseCards.find((c) => c.id === id);
-      if (!base || !authorized) return;
-      editing = base;
-      const card = combined(base);
-      $("edit-title").textContent = card.name || card.code;
-      $("edit-id").textContent = card.id;
-      $("edit-image").src = card.front;
-      $("edit-message").textContent = "";
-      const keys =
-        base.game === "aikatsu"
-          ? [
-              "name",
-              "code",
-              "rarity",
-              "character",
-              "series",
-              "type",
-              "category",
-              "brand",
-              "variant",
-              "front",
-              "back",
-            ]
-          : [
-              "name",
-              "code",
-              "rarity",
-              "character",
-              "family",
-              "series",
-              "songs",
-              "front",
-              "back",
-            ];
-      $("edit-fields").innerHTML = keys
-        .map((key) => {
-          let value = card[key] ?? "";
-          if (arrayFields.has(key))
-            value = (Array.isArray(value) ? value : [value]).join("\n");
-          if (key === "variant" && !value) value = "通常";
-          if (key === "family" || key === "variant") {
-            const choices =
-              key === "family" ? ["おねがい", "ひみつ"] : ["通常", "パラレル"];
-            return `<label>${labels[key]}<select data-field="${key}">${choices.map((v) => `<option ${value === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>`;
-          }
-          return `<label>${labels[key]}${arrayFields.has(key) ? `<textarea data-field="${key}" placeholder="1行に1項目">${esc(value)}</textarea>` : `<input data-field="${key}" value="${esc(value)}" ${["name", "code"].includes(key) ? "required" : ""} maxlength="2000">`}</label>`;
-        })
-        .join("");
-      $("override-remove").disabled = !overrides.has(id);
-      $("edit-dialog").showModal();
-    }
-    async function saveEditor(event) {
-      event.preventDefault();
-      if (!authorized || !editing) return;
-      const current = generation,
-        id = editing.id,
-        patch = { ...(overrides.get(id) || {}) };
-      $("edit-save").disabled = true;
-      try {
-        document.querySelectorAll("[data-field]").forEach((input) => {
-          const key = input.dataset.field;
-          const value = arrayFields.has(key)
-            ? [
-                ...new Set(
-                  input.value
-                    .split("\n")
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                ),
-              ]
-            : input.value.trim();
-          const original = arrayFields.has(key)
-            ? editing[key] || []
-            : editing[key] || (key === "variant" ? "通常" : "");
-          if (JSON.stringify(value) === JSON.stringify(original))
-            delete patch[key];
-          else patch[key] = value;
-        });
-        const result = Object.keys(patch).length
-          ? await db
-              .from("card_catalog_overrides")
-              .upsert({ card_id: id, patch }, { onConflict: "card_id" })
-          : await db.from("card_catalog_overrides").delete().eq("card_id", id);
-        if (result.error) throw result.error;
-        if (current !== generation || !authorized) return;
-        invalidateCatalog();
-        Object.keys(patch).length
-          ? overrides.set(id, patch)
-          : overrides.delete(id);
-        $("edit-dialog").close();
-        renderCards();
-        message(
-          "カード情報を保存しました。一般サイトには次回更新時に反映されます。",
-        );
-      } catch (e) {
-        if (current === generation)
-          $("edit-message").textContent = "保存できませんでした。" + e.message;
-      } finally {
-        $("edit-save").disabled = false;
-      }
-    }
-    let adminPresenceLoggingOut = false,
-      adminPresencePending = Promise.resolve(),
-      adminPresenceSent = 0;
-    function recordAdminPresence(logout = false) {
-      if (
-        !session ||
-        (!logout &&
-          (document.hidden ||
-            adminPresenceLoggingOut ||
-            Date.now() - adminPresenceSent < 40000))
-      )
-        return Promise.resolve();
-      const uid = session.user.id;
-      adminPresenceSent = Date.now();
-      adminPresencePending = adminPresencePending
-        .catch(() => {})
-        .then(async () => {
-          if (
-            (session && session.user.id !== uid) ||
-            (!logout && (!session || adminPresenceLoggingOut))
-          )
-            return;
-          const controller = new AbortController(),
-            timer = setTimeout(() => controller.abort(), 4000);
-          try {
-            let request = db.rpc("card_account_presence_touch", {
-              p_logout: logout,
-              p_all: false,
-            });
-            if (typeof request.abortSignal === "function")
-              request = request.abortSignal(controller.signal);
-            const r = await request;
-            if (r.error) adminPresenceSent = 0;
-          } catch {
-            adminPresenceSent = 0;
-          } finally {
-            clearTimeout(timer);
-          }
-        });
-      return adminPresencePending;
-    }
-    setInterval(() => {
-      if (authorized) recordAdminPresence();
-    }, 45000);
-    document.addEventListener("visibilitychange", () => {
-      if (authorized && !document.hidden) recordAdminPresence();
-    });
-    async function recordAdminConfirmedLogout(previous) {
-      if (!previous?.access_token) return;
-      const controller = new AbortController(),
-        timer = setTimeout(() => controller.abort(), 3000);
-      try {
-        await boundedFetch(
-          new URL(
-            "/rest/v1/rpc/card_account_presence_touch",
-            config.supabaseUrl,
-          ).href,
-          {
-            method: "POST",
-            headers: {
-              apikey: config.supabaseKey,
-              Authorization: "Bearer " + previous.access_token,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ p_logout: true, p_all: false }),
-            signal: controller.signal,
-            cache: "no-store",
-          },
-        );
-      } catch {
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-    let userState = "all",
-      userShare = "all",
-      userQuery = "",
-      userSort = "newest",
-      usersTotal = 0,
-      usersRefreshBusy = false,
-      userSearchTimer,
-      usersCheckedAt = null;
-    const stateLabels = {
-      online: "ログイン中",
-      offline: "ログアウト中",
-      unknown: "状態不明",
-    };
-    function accountStatusDot(status) {
-      const state = status in stateLabels ? status : "unknown";
-      return (
-        '<span class="account-status-dot is-' +
-        state +
-        '" aria-hidden="true"></span>'
-      );
-    }
-    function userArgs(include = true) {
-      return {
-        p_offset: (userPage - 1) * 100,
-        p_limit: 100,
-        p_status: userState,
-        p_share: userShare,
-        p_query: userQuery,
-        p_sort: userSort,
-        p_include_ownership: include,
-      };
-    }
-    function userKey() {
-      return [
-        generation,
-        userPage,
-        userState,
-        userQuery,
-        userSort,
-        userShare,
-      ].join("|");
-    }
-    function dateCell(value) {
-      if (!value || !Number.isFinite(Date.parse(value))) return "—";
-      const date = new Date(value);
-      return (
-        "<span>" +
-        esc(date.toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })) +
-        "</span><small>" +
-        esc(
-          date.toLocaleTimeString("ja-JP", {
-            timeZone: "Asia/Tokyo",
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-        ) +
-        "</small>"
-      );
-    }
-    function userShareCell(u) {
-      if (!u.has_share_link)
-        return '<span class="user-share-state is-none">未発行</span>';
-      const scopes = Array.isArray(u.share_scopes) ? u.share_scopes : [];
-      const labels = {
-        aikatsu: "アイカツ",
-        onegai: "おねがい",
-        himitsu: "ひみつ",
-        "verse-onegai": "おねがいバース",
-        "verse-himitsu": "ひみつバース",
-      };
-      const status = scopes.length
-        ? "公開 " + scopes.length + "種類"
-        : "全て非公開";
-      const badge =
-        '<span class="user-share-state ' +
-        (scopes.length ? "is-public" : "is-private") +
-        '" title="' +
-        esc(scopes.map((s) => labels[s] || s).join("・")) +
-        '">発行済み · ' +
-        status +
-        "</span>";
-      if (!/^[0-9a-f]{64}$/.test(u.share_token || ""))
-        return (
-          badge +
-          '<small class="user-share-note">以前のURLは再表示できません</small>'
-        );
-      const url = new URL(
-        "share/",
-        "https://iprimaker.github.io/card-management/",
-      );
-      url.hash = u.share_token;
-      return (
-        badge +
-        '<a class="user-share-link" href="' +
-        esc(url.href) +
-        '" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" title="' +
-        esc(url.href) +
-        '">共有アルバムを開く ↗</a>'
-      );
-    }
-    function paintUsers() {
-      const opened = new Set(
-        [...$("user-list").querySelectorAll("details[open]")].map(
-          (d) => d.dataset.userDetail,
-        ),
-      );
-      $("user-list").innerHTML =
-        [...userRows.values()]
-          .map((u) => {
-            const state =
-                u.presence_status in stateLabels
-                  ? u.presence_status
-                  : "unknown",
-              n = (k) => Number(u[k]) || 0,
-              cardTotal = [
-                "aikatsu_count",
-                "onegai_count",
-                "himitsu_count",
-                "other_count",
-              ].reduce((a, k) => a + n(k), 0),
-              verseTotal =
-                n("verse_onegai_coordinates") + n("verse_himitsu_coordinates");
-            return `<tr><td class="account-status-cell"><span class="account-state is-${state}" title="${esc("直近の画面通信：" + timestamp(u.presence_seen_at) + " ／ 明示的ログアウト：" + timestamp(u.presence_logout_at))}">${accountStatusDot(state)}${stateLabels[state]}</span></td><td class="user-identity"><strong>${esc(u.nickname || "未設定")}</strong><span class="album-id-cell">${esc(u.album_id || "未発行")}</span></td><td class="user-date">${dateCell(u.created_at)}</td><td class="user-date">${dateCell(u.last_sign_in_at)}</td><td class="inactive-days">${u.inactive_days != null && Number.isFinite(Number(u.inactive_days)) ? Math.max(0, Number(u.inactive_days)) + "日" : "—"}</td><td class="ownership-detail ownership-compact"><div class="user-owned-summary"><strong>カード ${cardTotal.toLocaleString()}枚</strong><span>バース ${verseTotal.toLocaleString()}コーデ</span></div><details data-user-detail="${esc(u.id)}" ${opened.has(u.id) ? "open" : ""}><summary>所持数の内訳</summary><div class="user-owned-breakdown"><span>アイカツ <b>${n("aikatsu_count")}枚</b></span><span>おねがい <b>${n("onegai_count")}枚</b></span><span>ひみつ <b>${n("himitsu_count")}枚</b></span>${n("other_count") ? "<span>その他 <b>" + n("other_count") + "枚</b></span>" : ""}<span>おねがいバース <b>${n("verse_onegai_coordinates")}コーデ ／ ${n("verse_onegai_parts")}枚（パーツ）</b></span><span>ひみつバース <b>${n("verse_himitsu_coordinates")}コーデ ／ ${n("verse_himitsu_parts")}枚（パーツ）</b></span></div></details></td><td class="user-share-cell">${userShareCell(u)}</td><td><button class="danger compact-button" data-delete-user="${esc(u.id)}" ${u.id === session?.user.id ? "disabled" : ""}>強制削除</button></td></tr>`;
-          })
-          .join("") ||
-        '<tr><td colspan="8" class="user-empty">条件に一致する登録者はいません。</td></tr>';
-      $("user-page").textContent = usersTotal
-        ? (userPage - 1) * 100 +
-          1 +
-          "〜" +
-          Math.min(userPage * 100, usersTotal) +
-          " / " +
-          usersTotal +
-          "人"
-        : "0人";
-      $("user-prev").disabled = userPage <= 1;
-      $("user-next").disabled = userPage * 100 >= usersTotal;
-      $("user-result-count").textContent =
-        "該当 " + usersTotal.toLocaleString() + "人";
-    }
-    function applyUserMeta(data) {
-      usersTotal = Number(data.total) || 0;
-      for (const button of document.querySelectorAll("[data-user-state]")) {
-        button.setAttribute(
-          "aria-pressed",
-          String(button.dataset.userState === userState),
-        );
-        button.querySelector("b").textContent = Number(
-          data.counts?.[button.dataset.userState] || 0,
-        ).toLocaleString();
-      }
-      usersCheckedAt = data.checked_at;
-      $("users-checked-at").textContent =
-        ($("users-auto-refresh").checked
-          ? "状態確認："
-          : "自動更新停止中・前回確認：") + timestamp(usersCheckedAt);
-    }
-    function markUsersStale() {
-      userRows.forEach((u) => (u.presence_status = "unknown"));
-      paintUsers();
-      document
-        .querySelectorAll("[data-user-state] b")
-        .forEach((e) => (e.textContent = "—"));
-      $("users-checked-at").textContent =
-        "状態を再確認できません。更新してください。";
-    }
-    async function loadUsersUnsafe() {
-      if (!authorized) return;
-      const key = userKey(),
-        request = ++usersRequest;
-      message("登録者を読み込み中…");
-      const { data, error } = await db.rpc(
-        "card_admin_users_shared_filtered",
-        userArgs(),
-      );
-      if (!authorized || key !== userKey() || request !== usersRequest) return;
-      if (error || !Array.isArray(data?.users)) {
-        markUsersStale();
-        message(error ? errorText(error) : "登録者の形式を確認してください。");
-        return;
-      }
-      if (data.total === 0) userPage = 1;
-      if (userPage > 1 && data.users.length === 0 && data.total > 0) {
-        userPage = Math.max(1, Math.ceil(data.total / 100));
-        return loadUsersUnsafe();
-      }
-      userRows = new Map(data.users.map((u) => [u.id, u]));
-      applyUserMeta(data);
-      paintUsers();
-      message("");
-    }
-    async function refreshAccountStatus() {
-      if (
-        usersRefreshBusy ||
-        !authorized ||
-        document.hidden ||
-        $("admin-users").hidden ||
-        !$("users-auto-refresh").checked
-      )
-        return;
-      usersRefreshBusy = true;
-      const key = userKey(),
-        request = usersRequest;
-      try {
-        const { data, error } = await db.rpc(
-          "card_admin_users_shared_filtered",
-          userArgs(false),
-        );
-        if (!authorized || key !== userKey() || request !== usersRequest)
-          return;
-        if (error || !Array.isArray(data?.users)) throw Error();
-        if (
-          data.users.map((u) => u.id).join("|") !==
-          [...userRows.keys()].join("|")
-        ) {
-          await loadUsersUnsafe();
-          return;
-        }
-        data.users.forEach((u) =>
-          userRows.set(u.id, { ...userRows.get(u.id), ...u }),
-        );
-        applyUserMeta(data);
-        paintUsers();
-      } catch {
-        if (authorized && key === userKey() && request === usersRequest)
-          markUsersStale();
-      } finally {
-        usersRefreshBusy = false;
-      }
-    }
-    setInterval(() => refreshAccountStatus(), 30000);
-    document.querySelectorAll("[data-user-state]").forEach(
-      (button) =>
-        (button.onclick = () => {
-          userState = button.dataset.userState;
-          userPage = 1;
-          loadUsers();
-        }),
-    );
-    $("user-search").oninput = () => {
-      clearTimeout(userSearchTimer);
-      userQuery = $("user-search").value.normalize("NFKC").trim();
-      userPage = 1;
-      usersRequest++;
-      userSearchTimer = setTimeout(() => loadUsers(), 300);
-    };
-    $("users-auto-refresh").onchange = () => {
-      if ($("users-auto-refresh").checked) refreshAccountStatus();
-      else
-        $("users-checked-at").textContent =
-          "自動更新停止中・前回確認：" + timestamp(usersCheckedAt);
-    };
-    $("user-sort").onchange = () => {
-      userSort = $("user-sort").value;
-      userPage = 1;
-      loadUsers();
-    };
-    $("user-share-filter").onchange = () => {
-      userShare = $("user-share-filter").value;
-      userPage = 1;
-      loadUsers();
-    };
-    $("user-filter-reset").onclick = () => {
-      clearTimeout(userSearchTimer);
-      userState = "all";
-      userShare = "all";
-      $("user-share-filter").value = "all";
-      userQuery = "";
-      userSort = "newest";
-      userPage = 1;
-      $("user-search").value = "";
-      $("user-sort").value = "newest";
-      loadUsers();
-    };
-    async function loadLogsUnsafe() {
-      if (!authorized) return;
-      const current = generation;
-      const { data, error } = await db
-        .from("card_admin_log")
-        .select("card_id,action,created_at,before_patch,after_patch")
-        .order("id", { ascending: false })
-        .limit(100);
-      if (current !== generation || !authorized) return;
-      if (error) {
-        message(errorText(error));
-        return;
-      }
-      $("log-list").innerHTML = (data || [])
-        .map((row) => {
-          const fields = [
-            ...new Set([
-              ...Object.keys(row.before_patch || {}),
-              ...Object.keys(row.after_patch || {}),
-            ]),
-          ].filter(
-            (k) =>
-              JSON.stringify(row.before_patch?.[k]) !==
-              JSON.stringify(row.after_patch?.[k]),
-          );
-          return `<details class="compact-history"><summary><span class="history-action">${{ DELETE: "解除", INSERT: "追加", UPDATE: "更新" }[row.action] || esc(row.action)}</span><strong>${esc(row.card_id)}</strong><small>${esc(timestamp(row.created_at))}</small></summary><p class="muted">変更項目：${esc(fields.map((k) => labels[k] || k).join("、"))}</p></details>`;
-        })
-        .join("");
-      message("最新100件を表示しています。");
-    }
-    async function guardedLoad(loader) {
-      const current = generation,
-        page = userPage,
-        request = usersRequest + 1;
-      try {
-        await loader();
-      } catch (error) {
-        if (
-          current === generation &&
-          authorized &&
-          (loader !== loadUsersUnsafe ||
-            (request === usersRequest && page === userPage))
-        )
-          message(errorText(error));
-      }
-    }
-    function loadUsers() {
-      return guardedLoad(loadUsersUnsafe);
-    }
-    function loadLogs() {
-      return guardedLoad(loadLogsUnsafe);
-    }
-    let importPage = 1,
-      importCardPage = 1,
-      selectedImportBatch = null;
-    let importOnlyNew = true,
-      importHistoryRequest = 0,
-      importCardsRequest = 0;
-    let importBatches = [];
-    const importPageSize = 20;
-
-    async function loadImports() {
-      if (!authorized) return;
-      const current = generation,
-        request = ++importHistoryRequest;
-      $("import-message").textContent = "追加履歴を確認中…";
-      try {
-        const { data, error } = await db.rpc("card_admin_import_history", {
-          p_offset: (importPage - 1) * importPageSize,
-          p_limit: importPageSize,
-        });
-        if (error) throw error;
-        if (
-          !authorized ||
-          current !== generation ||
-          request !== importHistoryRequest
-        )
-          return;
-        importBatches = data?.batches || [];
-        const total = Number(data?.total) || 0;
-        $("import-batches").innerHTML = importBatches
-          .map(
-            (batch) => `
-          <button type="button" class="import-batch" data-import-batch="${esc(batch.id)}" aria-pressed="false">
-            <strong>${esc(batch.record_kind === "baseline" ? "記録開始時点" : timestamp(batch.recorded_at))}</strong>
-            <span>${batch.record_kind === "baseline" ? `既存カード ${Number(batch.baseline_count) || 0}枚` : `新規 ${Number(batch.added_count) || 0}枚 · 更新 ${Number(batch.updated_count) || 0}枚${Number(batch.deleted_count) ? ` · 削除 ${Number(batch.deleted_count)}枚` : ""}`}</span>
-          </button>`,
-          )
-          .join("");
-        $("import-page").textContent =
-          `${importPage} / ${Math.max(1, Math.ceil(total / importPageSize))}`;
-        $("import-prev").disabled = importPage <= 1;
-        $("import-next").disabled = importPage * importPageSize >= total;
-        $("import-message").textContent = total
-          ? ""
-          : "追加履歴はまだありません。";
-        if (
-          !importBatches.some(
-            (batch) => String(batch.id) === selectedImportBatch,
-          )
-        ) {
-          selectedImportBatch = importBatches.length
-            ? String(importBatches[0].id)
-            : null;
-          importCardPage = 1;
-        }
-        if (selectedImportBatch) await loadImportCards();
-        else $("import-card-list").innerHTML = "";
-      } catch (error) {
-        if (
-          authorized &&
-          current === generation &&
-          request === importHistoryRequest
-        )
-          $("import-message").textContent = /PGRST202|42883/.test(
-            error?.code || "",
-          )
-            ? "同梱の01-import-history.sqlを先に実行してください。"
-            : "履歴を取得できませんでした。" + errorText(error);
-      }
-    }
-
-    async function loadImportCards() {
-      if (!authorized || !selectedImportBatch) return;
-      const current = generation,
-        request = ++importCardsRequest;
-      const batchID = selectedImportBatch,
-        onlyNew = importOnlyNew;
-      $("import-card-message").textContent = "カードを確認中…";
-      $("import-card-list").innerHTML = "";
-      document
-        .querySelectorAll("[data-import-batch]")
-        .forEach((button) =>
-          button.setAttribute(
-            "aria-pressed",
-            String(button.dataset.importBatch === batchID),
-          ),
-        );
-      document
-        .querySelectorAll("[data-import-mode]")
-        .forEach((button) =>
-          button.setAttribute(
-            "aria-pressed",
-            String((button.dataset.importMode === "new") === onlyNew),
-          ),
-        );
-      try {
-        const { data, error } = await db.rpc("card_admin_import_cards", {
-          p_batch_id: batchID,
-          p_offset: (importCardPage - 1) * pageSize,
-          p_limit: pageSize,
-          p_only_new: onlyNew,
-        });
-        if (error) throw error;
-        if (
-          !authorized ||
-          current !== generation ||
-          request !== importCardsRequest ||
-          batchID !== selectedImportBatch
-        )
-          return;
-        const batch = data?.batch,
-          rows = data?.cards || [],
-          total = Number(data?.total) || 0;
-        $("import-selected-title").textContent =
-          batch?.record_kind === "baseline"
-            ? "記録開始前のカード"
-            : batch
-              ? timestamp(batch.recorded_at)
-              : "追加履歴";
-        $("import-card-count").textContent =
-          `${onlyNew ? "新規追加" : "変更カード"} ${total}枚`;
-        $("import-card-message").textContent =
-          batch?.record_kind === "baseline"
-            ? "この時点の既存カード数のみを記録しています。過去の追加日・実行履歴は復元していません。"
-            : rows.length
-              ? ""
-              : onlyNew
-                ? "この回の新規追加カードはありません。全変更で更新カードを確認できます。"
-                : "この回のカード情報はありません。";
-        $("import-card-list").innerHTML = rows
-          .map(
-            (card) => `
-          <article class="admin-card import-card">
-            ${card.front ? `<img src="${esc(card.front)}" alt="${esc(card.name || card.code)}" loading="lazy">` : ""}
-            <span class="import-operation operation-${esc(card.operation.toLowerCase())}">${{ INSERT: "新規追加", UPDATE: "更新", DELETE: "削除" }[card.operation] || "変更"}</span>
-            <p class="muted">${esc(card.code || card.card_id)} · ${esc(card.rarity || "記載なし")}</p>
-            <p>${esc(card.name || "カード名未設定")}</p>
-            ${card.operation === "UPDATE" ? `<small class="muted">変更：${esc((card.changed_fields || []).map((key) => labels[key] || { ap: "AP", coordinateDefinitions: "コーデ構成" }[key] || key).join("・"))}</small>` : ""}
-            ${card.operation !== "DELETE" ? `<button type="button" data-import-edit="${esc(card.card_id)}">現在の情報を確認・編集</button>` : ""}
-          </article>`,
-          )
-          .join("");
-        $("import-card-page").textContent =
-          `${importCardPage} / ${Math.max(1, Math.ceil(total / pageSize))}`;
-        $("import-card-prev").disabled = importCardPage <= 1;
-        $("import-card-next").disabled = importCardPage * pageSize >= total;
-      } catch (error) {
-        if (
-          authorized &&
-          current === generation &&
-          request === importCardsRequest
-        )
-          $("import-card-message").textContent =
-            "カードを取得できませんでした。" + errorText(error);
-      }
-    }
-
-    $("reload-imports").onclick = () => loadImports();
-    $("import-batches").onclick = (event) => {
-      const button = event.target.closest("[data-import-batch]");
-      if (!button || button.dataset.importBatch === selectedImportBatch) return;
-      selectedImportBatch = button.dataset.importBatch;
-      importCardPage = 1;
-      loadImportCards();
-    };
-    document.querySelectorAll("[data-import-mode]").forEach(
-      (button) =>
-        (button.onclick = () => {
-          const onlyNew = button.dataset.importMode === "new";
-          if (onlyNew === importOnlyNew) return;
-          importOnlyNew = onlyNew;
-          importCardPage = 1;
-          loadImportCards();
-        }),
-    );
-    $("import-prev").onclick = () => {
-      if (importPage > 1) {
-        importPage--;
-        loadImports();
-      }
-    };
-    $("import-next").onclick = () => {
-      importPage++;
-      loadImports();
-    };
-    $("import-card-prev").onclick = () => {
-      if (importCardPage > 1) {
-        importCardPage--;
-        loadImportCards();
-      }
-    };
-    $("import-card-next").onclick = () => {
-      importCardPage++;
-      loadImportCards();
-    };
-    $("import-card-list").onclick = async (event) => {
-      const button = event.target.closest("[data-import-edit]");
-      if (!button || !authorized) return;
-      const id = button.dataset.importEdit,
-        current = generation;
-      try {
-        if (!baseCards.some((card) => card.id === id)) {
-          const { result } = await getCatalog(true);
-          if (!authorized || current !== generation) return;
-          baseCards = result.cards.filter(
-            (card) => card && typeof card.id === "string",
-          );
-          overrides = new Map(
-            result.overrides.map((row) => [row.card_id, row.patch]),
-          );
-        }
-        if (!baseCards.some((card) => card.id === id)) {
-          $("import-card-message").textContent =
-            "現在のカードDBには存在しません。削除済みの可能性があります。";
-          return;
-        }
-        openEditor(id);
-      } catch (error) {
-        if (authorized && current === generation)
-          $("import-card-message").textContent =
-            "カードを確認できませんでした。" + errorText(error);
-      }
-    };
-
-    function isUnregisteredCandidate(card) {
-      if (card._review?.kind === "metadata") return false;
-      const code = String(card.code || "")
-        .trim()
-        .toUpperCase();
-      const generic =
-        !code ||
-        [
-          "SP",
-          "SPECIAL",
-          "PROMO",
-          "記載なし",
-          "未取得",
-          "未確認",
-          "未登録",
-        ].includes(code);
-      return !baseCards.some((base) => {
-        const current = combined(base);
-        if (current.game !== card.game) return false;
-        return (
-          current.id === card.id ||
-          current.id === card._review?.target_id ||
-          current.id === card._review?.formal_id ||
-          (card.front &&
-            (current.front === card.front || base.front === card.front)) ||
-          (!generic &&
-            String(current.code || "")
-              .trim()
-              .toUpperCase() === code)
-        );
-      });
-    }
-    let pendingRows = [],
-      pendingLoaded = false,
-      pendingFlight = null,
-      pendingEpoch = 0;
-    let editingPending = null,
-      pendingBusy = false,
-      publishingPending = null;
-    const draftFields = [
-      "name",
-      "code",
-      "rarity",
-      "character",
-      "series",
-      "songs",
-      "type",
-      "category",
-      "brand",
-      "front",
-      "back",
-      "source",
-      "distribution",
-      "variant",
-      "ap",
-    ];
-    const draftLabels = {
-      ...labels,
-      source: "確認元URL",
-      distribution: "配布・入手方法",
-      ap: "AP",
-    };
-    async function loadPending(force = false) {
-      if (!authorized || (!force && pendingLoaded)) return;
-      if (pendingFlight) return pendingFlight;
-      const current = generation,
-        epoch = pendingEpoch;
-      const flight = (async () => {
-        const rows = [];
-        for (let offset = 0; ; offset += 500) {
-          const { data, error } = await db.rpc("card_admin_pending_cards", {
-            p_offset: offset,
-            p_limit: 500,
-          });
-          if (error) throw error;
-          if (!authorized || current !== generation || epoch !== pendingEpoch)
-            return;
-          const batch = data?.cards;
-          if (!Array.isArray(batch))
-            throw new Error("保留カードの取得結果を確認してください。");
-          rows.push(...batch);
-          if (batch.length < 500) break;
-        }
-        if (!authorized || current !== generation || epoch !== pendingEpoch)
-          return;
-        pendingRows = rows;
-        pendingLoaded = true;
-        renderCards();
-      })();
-      pendingFlight = flight;
-      try {
-        await flight;
-      } catch (error) {
-        if (authorized && current === generation)
-          message(
-            "保留カードを取得できませんでした。01-pending-cards.sqlの実行を確認してください。 " +
-              errorText(error),
-          );
-      } finally {
-        if (pendingFlight === flight) pendingFlight = null;
-      }
-    }
-    function openPending(id = null) {
-      if (!authorized || pendingBusy) return;
-      const row = id ? pendingRows.find((r) => r.id === id) : null;
-      if (id && (!row || !isUnregisteredCandidate(row.card))) {
-        message(
-          "このカードは登録済みか整理済みです。登録済み一覧から確認してください。",
-        );
-        return;
-      }
-      editingPending = row || {
-        id: null,
-        card: { game: "aipri", family: "おねがい" },
-        note: "",
-      };
-      const card = editingPending.card;
-      const review = card._review || { kind: "new_card" };
-      $("pending-reason").textContent =
-        review.reason ||
-        editingPending.note ||
-        "SQL作成時に根拠不足で追加を見送ったカード候補";
-      $("pending-target").textContent =
-        review.kind === "metadata"
-          ? "登録済みカードの項目補完（保留対象外）"
-          : "カード本体が未登録・人間による確認が必要";
-      $("pending-evidence-url").value = review.evidence_url || "";
-      $("pending-evidence-note").value = review.evidence_note || "";
-      $("pending-incomplete").checked = false;
-      $("pending-title").textContent = id
-        ? "SQL保留候補を確認"
-        : "SQL保留候補を追加";
-      $("pending-game").value = card.game || "aipri";
-      $("pending-family").value = card.family || "おねがい";
-      $("pending-fields").innerHTML = draftFields
-        .map((key) => {
-          const value = Array.isArray(card[key])
-            ? card[key].join("\n")
-            : (card[key] ?? "");
-          return `<label>${esc(draftLabels[key] || key)}${arrayFields.has(key) ? '<textarea rows="2"' : `<input ${key === "ap" ? 'type="number" min="0" max="9999999" step="1"' : 'type="text"'}`} data-pending-field="${key}" maxlength="2000" ${arrayFields.has(key) ? "" : `value="${esc(value)}"`}>${arrayFields.has(key) ? esc(value) + "</textarea>" : ""}${arrayFields.has(key) ? "<small>複数ある場合は改行で分けて入力</small>" : ""}</label>`;
-        })
-        .join("");
-      if (review.kind === "metadata") {
-        $("pending-game").disabled = $("pending-family").disabled = true;
-        for (const input of $("pending-fields").querySelectorAll(
-          "[data-pending-field]",
-        ))
-          input.disabled = !review.fields.includes(input.dataset.pendingField);
-      } else $("pending-game").disabled = $("pending-family").disabled = false;
-      $("pending-note").value = editingPending.note || "";
-      $("pending-incomplete").checked = false;
-      $("pending-message").textContent = "";
-      $("pending-dialog").showModal();
-    }
-    async function savePending() {
-      if (!authorized || !editingPending || pendingBusy) return null;
-      const current = generation;
-      const card = { ...editingPending.card, game: $("pending-game").value };
-      card._review = {
-        ...(card._review || { kind: "new_card" }),
-        evidence_url: $("pending-evidence-url").value.trim(),
-        evidence_note: $("pending-evidence-note").value.trim(),
-        evidence_confirmed: $("pending-incomplete").checked,
-      };
-      if (card.game === "aipri") card.family = $("pending-family").value;
-      else delete card.family;
-      for (const input of $("pending-fields").querySelectorAll(
-        "[data-pending-field]",
-      )) {
-        const key = input.dataset.pendingField,
-          value = input.value.trim();
-        if (
-          card._review.kind === "metadata" &&
-          !card._review.fields?.includes(key)
-        )
-          continue;
-        if (arrayFields.has(key))
-          card[key] = [
-            ...new Set(
-              value
-                .split("\n")
-                .map((v) => v.trim())
-                .filter(Boolean),
-            ),
-          ];
-        else if (key === "ap") {
-          if (
-            value &&
-            (!Number.isInteger(Number(value)) ||
-              Number(value) < 0 ||
-              Number(value) > 9999999)
-          ) {
-            $("pending-message").textContent =
-              "APは0〜9999999の整数で入力してください。";
-            return null;
-          }
-          card.ap = value === "" ? null : Number(value);
-        } else card[key] = value;
-      }
-      pendingBusy = true;
-      $("pending-save").disabled = $("pending-publish").disabled = true;
-      $("pending-message").textContent = "保存しています…";
-      try {
-        const { data, error } = await db.rpc("card_admin_save_pending", {
-          p_id: editingPending.id,
-          p_card: card,
-          p_note: $("pending-note").value.trim(),
-        });
-        if (error) throw error;
-        if (!authorized || current !== generation) return null;
-        const row = {
-          id: data.id,
-          card: data.card,
-          note: $("pending-note").value.trim(),
-        };
-        pendingEpoch++;
-        pendingLoaded = false;
-        pendingRows = [...pendingRows.filter((r) => r.id !== row.id), row];
-        editingPending = row;
-        renderCards();
-        $("pending-message").textContent =
-          "保留保存しました。一般側には表示されません。";
-        return row.id;
-      } catch (error) {
-        if (authorized && current === generation)
-          $("pending-message").textContent = errorText(error);
-        return null;
-      } finally {
-        pendingBusy = false;
-        $("pending-save").disabled = $("pending-publish").disabled = false;
-      }
-    }
-    $("pending-new").onclick = () => openPending();
-    $("pending-refresh").onclick = () => loadPending(true);
-    $("admin-state").onchange = async () => {
-      cardPage = 1;
-      if ($("admin-state").value !== "registered") await loadPending();
-      renderCards();
-    };
-    $("pending-form").onsubmit = async (event) => {
-      event.preventDefault();
-      await savePending();
-    };
-    $("pending-close").onclick = () => {
-      if (!pendingBusy) $("pending-dialog").close();
-    };
-    $("pending-dialog").addEventListener("cancel", (event) => {
-      if (pendingBusy) event.preventDefault();
-    });
-    $("pending-publish").onclick = async () => {
-      const id = await savePending();
-      if (!id || !authorized) return;
-      publishingPending = { id, allow: false };
-      $("pending-confirm-name").textContent =
-        editingPending.card.name ||
-        editingPending.card.code ||
-        "名称未設定のカード";
-      $("pending-confirm-title").textContent =
-        "確認した未登録カードを正式登録しますか？";
-      $("pending-confirm-message").textContent = "";
-      $("pending-confirm-dialog").showModal();
-    };
-    $("pending-confirm-cancel").onclick = () => {
-      if (!pendingBusy) $("pending-confirm-dialog").close();
-    };
-    $("pending-confirm-dialog").addEventListener("cancel", (event) => {
-      if (pendingBusy) event.preventDefault();
-    });
-    $("pending-confirm-register").onclick = async () => {
-      if (!publishingPending || !authorized || pendingBusy) return;
-      const current = generation,
-        target = publishingPending;
-      pendingBusy = true;
-      $("pending-confirm-register").disabled = true;
-      try {
-        const { data, error } = await db.rpc("card_admin_publish_pending", {
-          p_id: target.id,
-          p_allow_incomplete: target.allow,
-        });
-        if (error) throw error;
-        if (!authorized || current !== generation) return;
-        pendingEpoch++;
-        pendingRows = pendingRows.filter((r) => r.id !== target.id);
-        pendingLoaded = false;
-        $("pending-confirm-dialog").close();
-        $("pending-dialog").close();
-        invalidateCatalog();
-        renderCards();
-        await loadCards(true);
-        message("根拠を確認した内容を登録しました：" + data);
-      } catch (error) {
-        if (authorized && current === generation)
-          $("pending-confirm-message").textContent = errorText(error);
-      } finally {
-        pendingBusy = false;
-        $("pending-confirm-register").disabled = false;
-      }
-    };
-
-    let announcementKind = "notice";
-    let announcementRows = new Map(),
-      announcementPage = 0,
-      announcementRequest = 0;
-    let announcementEditing = null,
-      announcementDeleting = null,
-      announcementBusy = false;
-    async function loadAnnouncements() {
-      if (!authorized) return;
-      const current = generation,
-        request = ++announcementRequest;
-      $("announcement-message").textContent = "読み込んでいます…";
-      try {
-        const { data, error } = await db
-          .from("card_announcements")
-          .select("*")
-          .eq("kind", announcementKind)
-          .order("posted_at", { ascending: false })
-          .order("id", { ascending: false })
-          .range(announcementPage * 20, announcementPage * 20 + 20);
-        if (error) throw error;
-        if (
-          !authorized ||
-          current !== generation ||
-          request !== announcementRequest
-        )
-          return;
-        announcementRows = new Map(
-          (data || []).slice(0, 20).map((row) => [row.id, row]),
-        );
-        $("announcement-list").innerHTML = [...announcementRows.values()]
-          .map(
-            (row) =>
-              `<article class="announcement-admin-card"><div class="announcement-admin-meta"><span class="announcement-kind ${row.kind}">${row.kind === "notice" ? "お知らせ" : "更新情報"}</span>${row.important ? '<span class="important-tag">重要</span>' : ""}<span class="announcement-state ${row.published ? "published" : "draft"}">${row.published ? "公開中" : "非公開"}</span><time>${esc(timestamp(row.posted_at))}</time></div><h2>${esc(row.title)}</h2><p>${esc(row.body)}</p><div class="editor-actions"><button type="button" data-announcement-edit="${esc(row.id)}">編集</button><button type="button" class="danger" data-announcement-delete="${esc(row.id)}">削除</button></div></article>`,
-          )
-          .join("");
-        $("announcement-message").textContent = announcementRows.size
-          ? ""
-          : "まだ登録されていません。";
-        $("announcement-prev").disabled = announcementPage === 0;
-        $("announcement-next").disabled = (data || []).length <= 20;
-      } catch (error) {
-        if (
-          authorized &&
-          current === generation &&
-          request === announcementRequest
-        )
-          $("announcement-message").textContent = errorText(error);
-      }
-    }
-    function editAnnouncement(id = null) {
-      if (!authorized || announcementBusy) return;
-      const row = id ? announcementRows.get(id) : null;
-      if (id && !row) return;
-      announcementEditing = row || null;
-      $("announcement-editor-title").textContent = row
-        ? "掲載情報を編集"
-        : "掲載情報を追加";
-      $("announcement-kind").value = row?.kind || announcementKind;
-      $("announcement-title").value = row?.title || "";
-      $("announcement-body").value = row?.body || "";
-      $("announcement-posted-at").value = jstInput(
-        row?.posted_at || new Date(),
-      );
-      $("announcement-published").checked = row?.published ?? true;
-      $("announcement-important").checked = row?.important ?? false;
-      $("announcement-save-message").textContent = "";
-      $("announcement-dialog").showModal();
-    }
-    document.querySelectorAll("[data-announcement-kind]").forEach(
-      (button) =>
-        (button.onclick = () => {
-          announcementKind = button.dataset.announcementKind;
-          announcementPage = 0;
-          document
-            .querySelectorAll("[data-announcement-kind]")
-            .forEach((b) =>
-              b.setAttribute("aria-pressed", String(b === button)),
-            );
-          loadAnnouncements();
-        }),
-    );
-    $("announcement-add").onclick = () => editAnnouncement();
-    $("announcement-refresh").onclick = () => loadAnnouncements();
-    $("announcement-prev").onclick = () => {
-      announcementPage = Math.max(0, announcementPage - 1);
-      loadAnnouncements();
-    };
-    $("announcement-next").onclick = () => {
-      announcementPage++;
-      loadAnnouncements();
-    };
-    $("announcement-close").onclick = () => {
-      if (!announcementBusy) $("announcement-dialog").close();
-    };
-    $("announcement-dialog").addEventListener("cancel", (event) => {
-      if (announcementBusy) event.preventDefault();
-    });
-    $("announcement-delete-dialog").addEventListener("cancel", (event) => {
-      if (announcementBusy) event.preventDefault();
-    });
-    $("announcement-form").onsubmit = async (event) => {
-      event.preventDefault();
-      if (!authorized || announcementBusy) return;
-      const current = generation,
-        row = announcementEditing;
-      const values = {
-        kind: $("announcement-kind").value,
-        title: $("announcement-title").value.trim(),
-        body: $("announcement-body").value.trim(),
-        published: $("announcement-published").checked,
-        important: $("announcement-important").checked,
-        posted_at: new Date(
-          $("announcement-posted-at").value + "+09:00",
-        ).toISOString(),
-      };
-      if (!values.title || !values.body) {
-        $("announcement-save-message").textContent =
-          "タイトルと本文を入力してください。";
-        return;
-      }
-      announcementBusy = true;
-      $("announcement-save").disabled = true;
-      try {
-        const query = row
-          ? db
-              .from("card_announcements")
-              .update(values)
-              .eq("id", row.id)
-              .eq("updated_at", row.updated_at)
-          : db.from("card_announcements").insert(values);
-        const { data, error } = await query.select("id");
-        if (error) throw error;
-        if (!authorized || current !== generation) return;
-        if (!data?.length)
-          throw new Error(
-            "別の操作で更新・削除されています。一覧を更新して再度編集してください。",
-          );
-        $("announcement-dialog").close();
-        await loadAnnouncements();
-      } catch (error) {
-        if (authorized && current === generation)
-          $("announcement-save-message").textContent = errorText(error);
-      } finally {
-        announcementBusy = false;
-        $("announcement-save").disabled = false;
-      }
-    };
-    $("announcement-list").onclick = (event) => {
-      const edit = event.target.closest("[data-announcement-edit]");
-      if (edit) {
-        editAnnouncement(edit.dataset.announcementEdit);
-        return;
-      }
-      const button = event.target.closest("[data-announcement-delete]");
-      if (!button || announcementBusy) return;
-      announcementDeleting = announcementRows.get(
-        button.dataset.announcementDelete,
-      );
-      if (!announcementDeleting) return;
-      $("announcement-delete-name").textContent = announcementDeleting.title;
-      $("announcement-delete-message").textContent = "";
-      $("announcement-delete-dialog").showModal();
-    };
-    $("announcement-delete-cancel").onclick = () => {
-      if (!announcementBusy) $("announcement-delete-dialog").close();
-    };
-    $("announcement-delete-confirm").onclick = async () => {
-      if (!authorized || !announcementDeleting || announcementBusy) return;
-      const current = generation,
-        row = announcementDeleting;
-      announcementBusy = true;
-      $("announcement-delete-confirm").disabled = true;
-      try {
-        const { data, error } = await db
-          .from("card_announcements")
-          .delete()
-          .eq("id", row.id)
-          .eq("updated_at", row.updated_at)
-          .select("id");
-        if (error) throw error;
-        if (!authorized || current !== generation) return;
-        if (!data?.length)
-          throw new Error(
-            "別の操作で更新・削除されています。一覧を更新してください。",
-          );
-        $("announcement-delete-dialog").close();
-        if (announcementRows.size === 1 && announcementPage) announcementPage--;
-        await loadAnnouncements();
-      } catch (error) {
-        if (authorized && current === generation)
-          $("announcement-delete-message").textContent = errorText(error);
-      } finally {
-        announcementBusy = false;
-        $("announcement-delete-confirm").disabled = false;
-      }
-    };
-
-    function showPage(page) {
-      if (!requireAdminAction()) return;
-      for (const id of [
-        "cards",
-        "users",
-        "imports",
-        "logs",
-        "contacts",
-        "usage",
-        "operations",
-        "verse",
-        "announcements",
-      ])
-        $("admin-" + id).hidden = id !== page;
-      document
-        .querySelectorAll("[data-page]")
-        .forEach((b) => b.classList.toggle("active", b.dataset.page === page));
-      message("");
-      clearInterval(syncProgressTimer);
-      if (page === "cards") {
-        loadCards();
-        if ($("admin-state").value !== "registered") loadPending();
-        refreshSyncProgress();
-      }
-      if (page === "announcements") loadAnnouncements();
-      if (page === "imports") loadImports();
-      if (page === "users") loadUsers();
-      if (page === "logs") loadLogs();
-      if (page === "contacts") loadContacts();
-      if (page === "usage" || page === "operations") loadUsage();
-      if (page === "verse") loadVerseAdmin();
-    }
-    $("connection-test").onclick = async () => {
-      const button = $("connection-test"),
-        report = $("connection-report");
-      button.disabled = true;
-      report.hidden = false;
-      const lines = [
-        "画面のURL：" + location.origin + location.pathname,
-        "Supabase URL：" + config.supabaseUrl,
-        "直前の通信失敗：" + (lastConnectionFailure || "記録なし"),
-      ];
-      if (location.protocol === "file:")
-        lines.push(
-          "ファイルを直接開いています。HTTP/HTTPSの公開URLで開いてください。",
-        );
-      report.textContent = lines.join("\n") + "\n接続確認中…";
-      try {
-        const checks = await Promise.all(
-          [
-            ["認証API", "/auth/v1/settings"],
-            ["カードDB", "/rest/v1/card_catalog?select=id&limit=1"],
-          ].map(async ([label, path]) => {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 8000);
-            try {
-              const response = await fetch(config.supabaseUrl + path, {
-                headers: { apikey: config.supabaseKey },
-                signal: controller.signal,
-                cache: "no-store",
-              });
-              const jsonType = (
-                response.headers.get("content-type") || ""
-              ).includes("application/json");
-              return (
-                label +
-                "：HTTP " +
-                response.status +
-                (response.ok && jsonType
-                  ? "（接続成功）"
-                  : "（応答を確認してください）")
-              );
-            } catch (error) {
-              return (
-                label +
-                "：" +
-                (/abort/i.test(error?.name || "")
-                  ? "8秒でタイムアウト"
-                  : "通信失敗（" + (error?.message || "不明") + "）")
-              );
-            } finally {
-              clearTimeout(timer);
-            }
-          }),
-        );
-        report.textContent = [
-          ...lines,
-          ...checks,
-          "両方が接続成功なら、再ログインし、表示されるエラーとこの診断結果を確認してください。",
-          "通信失敗の場合はF12 → Console / Networkのエラーを確認してください。別のブラウザや回線でも比較できます。",
-        ].join("\n");
-      } finally {
-        button.disabled = false;
-      }
-    };
-    $("admin-login").onsubmit = async (e) => {
-      e.preventDefault();
-      $("admin-submit").disabled = true;
-      $("admin-auth-message").textContent = "";
-      try {
-        const identifier = $("admin-email").value.normalize("NFKC").trim();
-        let email = identifier.toLowerCase();
-        if (!identifier.includes("@")) {
-          const lookup = await db.rpc("card_album_login_identifier", {
-            p_id: identifier.toUpperCase(),
-            p_password: $("admin-password").value,
-          });
-          if (lookup.error) throw lookup.error;
-          email = lookup.data;
-        }
-        const { data, error } = await db.auth.signInWithPassword({
-          email,
-          password: $("admin-password").value,
-        });
-        $("admin-password").value = "";
-        if (error) throw error;
-        await checkAccess(data.session);
-      } catch (e) {
-        $("admin-auth-message").textContent = /invalid login/i.test(e.message)
-          ? "メールアドレスまたはパスワードが正しくありません。"
-          : errorText(e);
-      } finally {
-        $("admin-submit").disabled = false;
-      }
-    };
-    $("admin-logout").onclick = async () => {
-      adminPresenceLoggingOut = true;
-      const logoutSession = session;
-      const presenceLogout = adminPresencePending.catch(() => {});
-      // Clear private DOM immediately, including when the server is unavailable.
-      generation++;
-      session = null;
-      hidePrivateData();
-      try {
-        await presenceLogout;
-        const { error } = await db.auth.signOut({ scope: "local" });
-        if (error) {
-          $("admin-auth-message").textContent = errorText(error);
-        } else {
-          await recordAdminConfirmedLogout(logoutSession);
-        }
-      } catch (error) {
-        $("admin-auth-message").textContent = errorText(error);
-      }
-    };
-    $("admin-query").oninput = () => {
-      cardPage = 1;
-      renderCards();
-    };
-    $("admin-game").onchange = () => {
-      cardPage = 1;
-      renderCards();
-    };
-    $("admin-missing").onchange = () => {
-      cardPage = 1;
-      renderCards();
-    };
-    $("admin-card-list").onclick = (e) => {
-      const b = e.target.closest("[data-edit]");
-      if (b) openEditor(b.dataset.edit);
-      const draft = e.target.closest("[data-pending-edit]");
-      if (draft) openPending(draft.dataset.pendingEdit);
-    };
-    $("card-prev").onclick = () => {
-      cardPage--;
-      renderCards();
-    };
-    $("card-next").onclick = () => {
-      cardPage++;
-      renderCards();
-    };
-    $("user-prev").onclick = () => {
-      if (userPage <= 1) return;
-      userPage--;
-      loadUsers();
-    };
-    $("user-next").onclick = () => {
-      if (userPage * 100 >= usersTotal) return;
-      userPage++;
-      loadUsers();
-    };
-    $("edit-form").onsubmit = saveEditor;
-    $("edit-close").onclick = () => $("edit-dialog").close();
-    $("override-remove").onclick = () => $("confirm-dialog").showModal();
-    $("confirm-cancel").onclick = () => $("confirm-dialog").close();
-    $("confirm-remove").onclick = async () => {
-      if (!authorized || !editing) return;
-      const current = generation,
-        id = editing.id;
-      $("confirm-remove").disabled = true;
-      try {
-        const { error } = await db
-          .from("card_catalog_overrides")
-          .delete()
-          .eq("card_id", id);
-        if (error) throw error;
-        if (current !== generation || !authorized) return;
-        invalidateCatalog();
-        overrides.delete(id);
-        $("confirm-dialog").close();
-        $("edit-dialog").close();
-        renderCards();
-        message("修正を解除しました。");
-      } catch (e) {
-        if (current === generation) message(e.message);
-      } finally {
-        $("confirm-remove").disabled = false;
-      }
-    };
-    $("reload-cards").onclick = () => loadCards(true);
-    $("reload-users").onclick = loadUsers;
-    $("reload-logs").onclick = loadLogs;
-    document
-      .querySelectorAll("[data-page]")
-      .forEach((b) => (b.onclick = () => showPage(b.dataset.page)));
-    db.auth.onAuthStateChange((event, next) => {
-      if (event === "SIGNED_OUT") {
-        warnAdminLogin();
-        generation++;
-        session = null;
-        hidePrivateData();
-      } else if (["SIGNED_IN", "TOKEN_REFRESHED"].includes(event) && next) {
-        if (next.user.id === session?.user?.id && (!authorized || sessionAal(next) === "aal2")) {
-          session = next;
-        } else {
-          generation++;
-          session = next;
-          hidePrivateData();
-          setTimeout(() => {
-            if (session?.user?.id === next.user.id)
-              checkAccess(next).catch((e) => {
-                $("admin-auth-message").textContent = errorText(e);
-              });
-          }, 0);
-        }
-      }
-    });
-
-    async function contactRequest(
-      action,
-      {
-        body,
-        page = contactPage,
-        status = $("contact-status-filter").value,
-      } = {},
-    ) {
-      if (!authorized || !session) throw Error("ログインし直してください。");
-      let name,
-        args = {};
-      if (action === "summary") name = "card_admin_contact_summary";
-      else if (action === "list") {
-        name = "card_admin_contact_list";
-        args = { p_offset: (page - 1) * 50, p_status: status };
-      } else if (action === "status") {
-        name = "card_admin_contact_status";
-        args = { p_id: body.id, p_status: body.status };
-      } else if (action === "delete-user") {
-        name = "card_admin_delete_account";
-        args = { p_target: body.user_id, p_confirmation: body.confirmation };
-      } else throw Error("無効な操作です。");
-      const { data, error } = await db.rpc(name, args);
-      if (error) throw error;
-      return action === "delete-user" ? { deleted: data === true } : data;
-    }
-    async function loadContacts() {
-      if (!authorized) return;
-      const current = generation,
-        page = contactPage,
-        status = $("contact-status-filter").value,
-        request = ++contactsRequest;
-      message("お問い合わせを読み込み中…");
-      try {
-        const { messages } = await contactRequest("list", { page, status });
-        if (
-          current !== generation ||
-          request !== contactsRequest ||
-          page !== contactPage ||
-          status !== $("contact-status-filter").value ||
-          !authorized
-        )
-          return;
-        const categories = {
-          question: "使い方について",
-          correction: "カード情報の修正",
-          deletion: "削除申請",
-          other: "その他",
-        };
-        if (!Array.isArray(messages))
-          throw Error("お問い合わせ関数の応答形式を確認してください。");
-        contactRows = new Map(messages.map((row) => [row.id, row]));
-        $("contact-list").innerHTML = messages
-          .map(
-            (row) =>
-              `<details class="contact-message status-${["new", "working", "done"].includes(row.status) ? row.status : "new"}"><summary><span class="status-label">${{ new: "未対応", working: "対応中", done: "対応済み" }[row.status] || "未対応"}</span><h2>${esc(categories[row.category] || "お問い合わせ")}</h2><time>${esc(timestamp(row.created_at))}</time></summary><p class="contact-meta">${esc(row.name || "お名前未記入")}<br>${esc(row.album_id ? "アルバムID：" + row.album_id : row.email)}<br>${esc(timestamp(row.created_at))}</p><p class="contact-id">受付番号：${esc(row.id)}</p><div class="message-body">${esc(row.message)}</div><div class="contact-actions"><select aria-label="対応状況" data-contact-status="${esc(row.id)}">${[
-                ["new", "未対応"],
-                ["working", "対応中"],
-                ["done", "対応済み"],
-              ]
-                .map(
-                  ([value, label]) =>
-                    `<option value="${value}" ${row.status === value ? "selected" : ""}>${label}</option>`,
-                )
-                .join(
-                  "",
-                )}</select><button data-contact-save="${esc(row.id)}">状態を保存</button>${row.status === "done" ? `<button type="button" class="danger-button" data-contact-delete="${esc(row.id)}">削除</button>` : ""}</div></details>`,
-          )
-          .join("");
-        $("contact-page").textContent = contactPage + "ページ";
-        $("contact-prev").disabled = contactPage === 1;
-        $("contact-next").disabled = messages.length < 50;
-        message(messages.length ? "" : "お問い合わせはありません。");
-        refreshContactNotification();
-      } catch (error) {
-        if (current === generation && request === contactsRequest && authorized)
-          message(errorText(error));
-      }
-    }
-    $("reload-contacts").onclick = loadContacts;
-    $("contact-status-filter").onchange = () => {
-      contactPage = 1;
-      loadContacts();
-    };
-    $("contact-prev").onclick = () => {
-      contactPage--;
-      loadContacts();
-    };
-    $("contact-next").onclick = () => {
-      contactPage++;
-      loadContacts();
-    };
-    $("contact-list").onclick = async (event) => {
-      const remove = event.target.closest("[data-contact-delete]");
-      if (remove && requireAdminAction()) {
-        const row = contactRows.get(remove.dataset.contactDelete);
-        if (row?.status === "done") {
-          contactDeleting = row;
-          $("contact-delete-status").textContent = "";
-          $("contact-delete-dialog").showModal();
-        }
-        return;
-      }
-      const button = event.target.closest("[data-contact-save]");
-      if (!button || !authorized) return;
-      const current = generation;
-      button.disabled = true;
-      try {
-        const select = button
-          .closest(".contact-message")
-          .querySelector("[data-contact-status]");
-        await contactRequest("status", {
-          method: "POST",
-          body: { id: button.dataset.contactSave, status: select.value },
-        });
-        if (current === generation && authorized) {
-          message("対応状況を保存しました。");
-          notificationFetchedAt = 0;
-          await loadContacts();
-        }
-      } catch (error) {
-        if (current === generation) message(errorText(error));
-      } finally {
-        button.disabled = false;
-      }
-    };
-
-    async function refreshContactNotification(force = false) {
-      if (
-        !authorized ||
-        notificationBusy ||
-        (!force &&
-          notificationFetchedAt &&
-          Date.now() - notificationFetchedAt < 300000)
-      )
-        return;
-      notificationBusy = true;
-      const current = generation;
-      try {
-        const result = await contactRequest("summary");
-        if (current !== generation || !authorized) return;
-        notificationFetchedAt = Date.now();
-        const count = Math.max(0, Number(result.new_count) || 0);
-        $("contact-alert").hidden = count === 0;
-        $("contact-alert").textContent = "● " + (count > 99 ? "99+" : count);
-        $("contact-alert").setAttribute(
-          "aria-label",
-          "未対応のお問い合わせ " + count + "件",
-        );
-      } catch {
-        /* 一覧では取得エラーを表示。通知だけの失敗で画面を遮りません。 */
-      } finally {
-        notificationBusy = false;
-      }
-    }
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) {
-        refreshContactNotification();
-        if (!$("admin-cards").hidden) refreshSyncProgress();
-      }
-    });
-    $("user-list").onclick = (event) => {
-      const button = event.target.closest("[data-delete-user]");
-      if (!button || !authorized || button.disabled) return;
-      deletingUser = userRows.get(button.dataset.deleteUser);
-      if (!deletingUser) return;
-      $("delete-user-label").textContent =
-        (deletingUser.nickname || "未設定") +
-        " ／ " +
-        (deletingUser.album_id || "ID未発行");
-      $("delete-user-ack").checked = false;
-      $("delete-user-confirm").disabled = true;
-      $("delete-user-message").textContent = "";
-      $("delete-user-dialog").showModal();
-    };
-    let deleteBusy = false;
-    for (const id of ["delete-user-close", "delete-user-cancel"])
-      $(id).onclick = () => {
-        if (!deleteBusy) $("delete-user-dialog").close();
-      };
-    $("delete-user-dialog").addEventListener("cancel", (e) => {
-      if (deleteBusy) e.preventDefault();
-    });
-    $("delete-user-ack").onchange = () => {
-      $("delete-user-confirm").disabled =
-        deleteBusy || !$("delete-user-ack").checked;
-    };
-    $("delete-user-confirm").onclick = async () => {
-      if (
-        !authorized ||
-        !deletingUser ||
-        !$("delete-user-ack").checked ||
-        deleteBusy
-      )
-        return;
-      deleteBusy = true;
-      $("delete-user-confirm").disabled = true;
-      $("delete-user-message").textContent = "削除中…";
-      const current = generation;
-      try {
-        await contactRequest("delete-user", {
-          method: "POST",
-          body: { user_id: deletingUser.id, confirmation: "DELETE_ACCOUNT" },
-        });
-        if (current !== generation || !authorized) return;
-        $("delete-user-dialog").close();
-        deletingUser = null;
-        await loadUsers();
-        refreshContactNotification(true);
-        message("アカウントと関連情報を削除しました。");
-      } catch (error) {
-        if (current === generation)
-          $("delete-user-message").textContent = errorText(error);
-      } finally {
-        deleteBusy = false;
-        $("delete-user-confirm").disabled = !$("delete-user-ack").checked;
-      }
-    };
-    $("force-sync").onclick = async () => {
-      await loadCards(true);
-      await refreshSyncProgress();
-    };
-    async function refreshSyncProgress() {
-      if (!authorized || $("admin-cards").hidden) return;
-      const data = window.PUBLIC_CATALOG_CACHE.peek();
-      $("sync-progress-status").textContent =
-        "SQLで追加・更新したカード情報を表示しています。";
-      $("sync-progress-counts").textContent = data
-        ? "登録カード " + data.cards.length + "枚"
-        : "未確認";
-      $("sync-progress-time").textContent = data
-        ? "最終更新：" + timestamp(data.state?.updated_at)
-        : "";
-    }
-    $("refresh-sync-progress").onclick = async () => {
-      await loadCards(true);
-      await refreshSyncProgress();
-    };
-
-    function formatBytes(value) {
-      const bytes = Number(value);
-      if (!Number.isFinite(bytes) || bytes < 0) return "未取得";
-      return bytes < 1000000
-        ? (bytes / 1000).toFixed(1) + " KB"
-        : bytes < 1000000000
-          ? (bytes / 1000000).toFixed(2) + " MB"
-          : (bytes / 1000000000).toFixed(2) + " GB";
-    }
-    function metricCard(label, value, note = "") {
-      return `<div class="usage-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong>${note ? `<small>${esc(note)}</small>` : ""}</div>`;
-    }
-    function quotaCard(label, value, limit) {
-      if (value === null)
-        return metricCard(label, "未取得", "無料枠 " + formatBytes(limit));
-      const percent = Math.max(0, (Number(value) / limit) * 100);
-      const tone =
-        percent >= 90 ? "quota-danger" : percent >= 80 ? "quota-warning" : "";
-      return `<div class="usage-metric ${tone}"><span>${esc(label)}</span><strong>${esc(formatBytes(value))}</strong><small>無料枠 ${esc(formatBytes(limit))} ／ ${percent.toFixed(1)}%</small><div class="quota-bar"><i style="width:${Math.min(100, percent)}%"></i></div></div>`;
-    }
-    function showRegistrationStatus(status) {
-      $("registration-state").textContent = status.allowed
-        ? "受付中"
-        : "新規登録を停止中";
-      $("registration-state").classList.toggle("paused", !status.allowed);
-    }
-    let maintenanceRevision = 0;
-    let latestMaintenanceStatus = null;
-    function showMaintenanceStatus(status) {
-      latestMaintenanceStatus = status;
-      $("maintenance-stop").hidden = status.maintenance !== true;
-      $("maintenance-enabled").checked = status.maintenance === true;
-      $("maintenance-admin-message").value =
-        status.message ||
-        "ただ今システムのメンテナンスをしていますので、アルバムを開けません。";
-      $("maintenance-ends-at").value = status.ends_at
-        ? new Date(new Date(status.ends_at).getTime() + 9 * 3600000)
-            .toISOString()
-            .slice(0, 16)
-        : "";
-      $("maintenance-state").textContent = status.maintenance
-        ? "メンテナンスON · 一般サイトの利用を停止中"
-        : "メンテナンスOFF · 通常の受付設定で運用中";
-      $("maintenance-state").classList.toggle(
-        "paused",
-        status.maintenance === true,
-      );
-    }
-    async function loadUsage() {
-      if (!authorized || usageBusy) return;
-      usageBusy = true;
-      const current = generation;
-      $("reload-usage").disabled = true;
-      const maintenanceAtStart = maintenanceRevision;
-      message("使用状況を確認中…");
-      try {
-        const { data, error } =
-          usageSnapshot && Date.now() - usageFetchedAt < 60000
-            ? { data: usageSnapshot }
-            : await db.rpc("card_admin_usage");
-        if (error) throw error;
-        if (current !== generation || !authorized) return;
-        if (maintenanceAtStart !== maintenanceRevision) return;
-        if (data !== usageSnapshot) usageFetchedAt = Date.now();
-        usageSnapshot = data;
-        const settings = data.settings;
-        $("usage-cards").innerHTML =
-          quotaCard("DB全体の容量", data.database_bytes, 500000000) +
-          quotaCard("ストレージ", data.storage_bytes, 1000000000) +
-          metricCard(
-            "登録アカウント",
-            Number(data.accounts).toLocaleString() + "件",
-          ) +
-          metricCard("登録カード", Number(data.cards).toLocaleString() + "枚") +
-          metricCard(
-            "所持記録",
-            Number(data.ownership_records).toLocaleString() + "件",
-          ) +
-          metricCard(
-            "DB接続",
-            Number(data.connections).toLocaleString() + "件",
-          );
-        $("usage-measured").textContent =
-          "確認日時：" + timestamp(data.measured_at);
-        $("registration-enabled").checked = settings.registration_enabled;
-        $("registration-message").value = settings.pause_message;
-        $("registration-db-limit").value = settings.database_limit_bytes
-          ? Math.round(Number(settings.database_limit_bytes) / 1000000)
-          : "";
-        showMaintenanceStatus({
-          maintenance: settings.maintenance_enabled === true,
-          message: settings.maintenance_message,
-          ends_at: settings.maintenance_ends_at,
-        });
-        showRegistrationStatus(data.registration);
-        $("usage-tables").innerHTML = (data.tables || [])
-          .map(
-            (t) =>
-              `<tr><td>${esc(t.schema)}.${esc(t.name)}</td><td>${esc(formatBytes(t.bytes))}</td><td>${Number(t.estimated_rows).toLocaleString()}</td></tr>`,
-          )
-          .join("");
-        $("supabase-usage-link").href =
-          "https://supabase.com/dashboard/project/" +
-          new URL(config.supabaseUrl).hostname.split(".")[0] +
-          "/settings/usage";
-        message("");
-
-        if (!$("traffic-message").textContent)
-          $("traffic-message").textContent =
-            "通信統計はボタンを押して確認できます。";
-      } catch (error) {
-        if (current === generation && authorized) message(errorText(error));
-      } finally {
-        usageBusy = false;
-        $("reload-usage").disabled = false;
-      }
-    }
-
-    $("reload-usage-details").onclick = async () => {
-      if (!authorized || detailsBusy) return;
-      if (Date.now() - detailsFetchedAt < 60000) {
-        $("usage-details-message").textContent =
-          "直前の確認結果を表示しています。再確認は1分後にできます。";
-        return;
-      }
-      detailsBusy = true;
-      $("reload-usage-details").disabled = true;
-      const current = generation;
-      $("usage-details-message").textContent = "詳しい使用状況を確認中…";
-      try {
-        const { data, error } = await db.rpc("card_admin_usage_details");
-        if (error) throw error;
-        if (!authorized || current !== generation) return;
-        detailsFetchedAt = Date.now();
-
-        const a = data.accounts,
-          o = data.ownership,
-          d = data.db_stats || {};
-        $("usage-detail-cards").innerHTML =
-          metricCard("7日以内の新規登録", a.registered_7d + "件") +
-          metricCard("7日以内のログイン", a.signed_in_7d + "人") +
-          metricCard("30日以内のログイン", a.signed_in_30d + "人") +
-          metricCard("所持カード合計", o.quantity + "枚") +
-          metricCard("所持記録のある利用者", o.owners + "人") +
-          metricCard(
-            "DB接続状態",
-            data.sessions.map((s) => s.state + "：" + s.count).join(" ／ "),
-          );
-        const total = Number(d.blocks_read) + Number(d.blocks_hit);
-        $("usage-detail-stats").innerHTML =
-          metricCard(
-            "DBバッファのヒット率",
-            total
-              ? ((100 * Number(d.blocks_hit)) / total).toFixed(2) + "%"
-              : "未計測",
-          ) +
-          metricCard(
-            "確定トランザクション",
-            Number(d.commits || 0).toLocaleString(),
-          ) +
-          metricCard(
-            "ロールバック",
-            Number(d.rollbacks || 0).toLocaleString(),
-          ) +
-          metricCard(
-            "デッドロック",
-            Number(d.deadlocks || 0).toLocaleString(),
-          ) +
-          metricCard("一時ファイル書き込み", formatBytes(d.temp_bytes || 0)) +
-          metricCard(
-            "挿入／更新／削除行",
-            [d.rows_inserted, d.rows_updated, d.rows_deleted]
-              .map((n) => Number(n || 0).toLocaleString())
-              .join(" ／ "),
-          );
-        $("usage-detail-period").textContent =
-          "DB統計はリセット以降の累計です（月間使用量ではありません）。リセット：" +
-          timestamp(d.stats_reset);
-        $("usage-detail-tables").innerHTML = data.tables
-          .map(
-            (t) =>
-              `<tr><td>${esc(t.schema + "." + t.name)}</td><td>${esc(formatBytes(t.total_bytes))}</td><td>${esc(formatBytes(t.table_bytes))}</td><td>${esc(formatBytes(t.index_bytes))}</td><td>${Number(t.live_rows).toLocaleString()}</td><td>${Number(t.dead_rows).toLocaleString()}</td><td>${esc(timestamp(t.last_autovacuum))}</td></tr>`,
-          )
-          .join("");
-        $("usage-detail-cron").innerHTML =
-          (data.cron || [])
-            .map(
-              (j) =>
-                `<p>${esc(j.jobname)} · ${j.active ? "有効" : "停止"} · 実行 ${Number(j.runs)}回 ／ 失敗 ${Number(j.failed)}回 · 最終 ${esc(timestamp(j.latest))}</p>`,
-            )
-            .join("") || "未取得";
-        const h = data.http;
-        $("usage-detail-http").innerHTML = h
-          ? metricCard("保存済み結果", h.retained + "件") +
-            metricCard("HTTP成功", h.success + "件") +
-            metricCard("HTTP失敗・時間切れ", h.errors + "件") +
-            metricCard(
-              "集計期間",
-              timestamp(h.oldest) + "〜" + timestamp(h.latest),
-            )
-          : metricCard("HTTP結果", "未取得");
-        $("usage-details-message").textContent =
-          "確認日時：" + timestamp(data.measured_at);
-      } catch (error) {
-        if (authorized && current === generation)
-          $("usage-details-message").textContent = errorText(error);
-      } finally {
-        detailsBusy = false;
-        $("reload-usage-details").disabled = false;
-      }
-    };
-
-    let trafficLoadedAt = 0,
-      trafficBusy = false;
-    async function loadTraffic(current = generation) {
-      if (!authorized || trafficBusy || Date.now() - trafficLoadedAt < 300000)
-        return;
-      trafficBusy = true;
-      $("reload-traffic").disabled = true;
-      $("traffic-message").textContent = "通信統計を確認中…";
-      $("traffic-totals").replaceChildren();
-      $("traffic-chart").replaceChildren();
-      try {
-        const { data: result, error } = await db.rpc(
-          "card_admin_database_traffic",
-        );
-        if (error) throw error;
-        if (current !== generation || !authorized) return;
-        if (!result?.database) throw Error("DB統計の応答を確認してください。");
-        trafficLoadedAt = Date.now();
-        const stats = result.database;
-        const number = (value) => (Number(value) || 0).toLocaleString();
-        $("traffic-totals").innerHTML =
-          metricCard(
-            "DBコミット",
-            number(stats.commits) + "回",
-            "APIリクエスト数とは異なります",
-          ) +
-          metricCard("DBロールバック", number(stats.rollbacks) + "回") +
-          metricCard("現在の接続", number(stats.connections) + "接続") +
-          metricCard("更新した行", number(stats.rows_updated) + "行") +
-          metricCard("追加した行", number(stats.rows_inserted) + "行") +
-          metricCard("削除した行", number(stats.rows_deleted) + "行");
-        const http = result.http;
-        if (http) {
-          $("traffic-totals").innerHTML +=
-            metricCard(
-              "DB発HTTP・成功",
-              number(http.success) + "件",
-              "保持されている応答のみ",
-            ) +
-            metricCard(
-              "DB発HTTP・エラー",
-              number(http.errors) + "件",
-              "保持されている応答のみ",
-            );
-        }
-        $("traffic-message").textContent =
-          "取得日時：" +
-          timestamp(result.measured_at) +
-          (stats.stats_reset
-            ? " ／ DB統計の集計開始：" + timestamp(stats.stats_reset)
-            : " ／ DB統計の集計開始日時は未取得") +
-          (http?.oldest
-            ? " ／ HTTP記録：" +
-              timestamp(http.oldest) +
-              "〜" +
-              timestamp(http.latest)
-            : "");
-        $("traffic-chart").innerHTML = (result.sessions || [])
-          .map((row) =>
-            metricCard(
-              {
-                active: "処理中",
-                idle: "待機中",
-                "idle in transaction": "トランザクション待機",
-              }[row.state] || row.state,
-              number(row.count) + "接続",
-            ),
-          )
-          .join("");
-      } catch (error) {
-        if (current === generation && authorized)
-          $("traffic-message").textContent = errorText(error);
-      } finally {
-        trafficBusy = false;
-        $("reload-traffic").disabled = false;
-      }
-    }
-    $("reload-traffic").onclick = () => loadTraffic();
-    $("reload-usage").onclick = () => {
-      usageSnapshot = null;
-      usageFetchedAt = 0;
-      return loadUsage();
-    };
-    $("registration-free-preset").onclick = () => {
-      $("registration-db-limit").value = "450";
-      $("registration-save-message").textContent =
-        "無料枠500MBの90％を停止基準に設定しました。保存すると反映されます。";
-    };
-    $("maintenance-stop").onclick = async () => {
-      if (!authorized || $("maintenance-save").disabled) return;
-      const current = generation;
-      const savedMessage = latestMaintenanceStatus?.message?.trim();
-      $("maintenance-save").disabled = true;
-      $("maintenance-stop").disabled = true;
-      $("maintenance-enabled").disabled = true;
-      $("maintenance-save-message").textContent = "メンテナンスを解除中…";
-      try {
-        // フォームの入力検証を通さず、保存済みの案内文で確実にOFFを指定。
-        const { data, error } = await db.rpc("card_admin_set_maintenance", {
-          p_enabled: false,
-          p_message:
-            savedMessage ||
-            "ただ今システムのメンテナンスをしていますので、アルバムを開けません。",
-          p_ends_at: null,
-        });
-        if (error) throw error;
-        if (current !== generation || !authorized) return;
-        if (!data || data.maintenance !== false) {
-          throw Error(
-            "解除結果を確認できませんでした。使用状況を再取得して確認してください。",
-          );
-        }
-        maintenanceRevision++;
-        usageSnapshot = null;
-        usageFetchedAt = 0;
-        showMaintenanceStatus(data);
-        $("maintenance-save-message").textContent =
-          "メンテナンスを解除しました。一般サイトで再びログインできます。";
-      } catch (error) {
-        if (current === generation && authorized) {
-          $("maintenance-save-message").textContent =
-            "解除に失敗しました：" + errorText(error);
-        }
-      } finally {
-        $("maintenance-save").disabled = false;
-        $("maintenance-stop").disabled = false;
-        $("maintenance-enabled").disabled = false;
-      }
-    };
-    $("maintenance-controls").onsubmit = async (event) => {
-      event.preventDefault();
-      if (!authorized || $("maintenance-save").disabled) return;
-      const text = $("maintenance-admin-message").value.trim();
-      const value = $("maintenance-ends-at").value;
-      const endsAt = value ? new Date(value + "+09:00") : null;
-      if (
-        !text ||
-        text.length > 500 ||
-        (endsAt && Number.isNaN(endsAt.getTime()))
-      ) {
-        $("maintenance-save-message").textContent =
-          "案内文・終了予定を確認してください。";
-        return;
-      }
-      const enabled = $("maintenance-enabled").checked;
-      const current = generation;
-      $("maintenance-save").disabled = true;
-      $("maintenance-enabled").disabled = true;
-      $("maintenance-save-message").textContent = "設定を保存中…";
-      try {
-        const { data, error } = await db.rpc("card_admin_set_maintenance", {
-          p_enabled: enabled,
-          p_message: text,
-          p_ends_at: endsAt ? endsAt.toISOString() : null,
-        });
-        if (error) throw error;
-        if (current !== generation || !authorized) return;
-        if (!data || data.maintenance !== enabled) {
-          throw Error(
-            "保存結果を確認できませんでした。使用状況を再取得して確認してください。",
-          );
-        }
-        maintenanceRevision++;
-        usageSnapshot = null;
-        usageFetchedAt = 0;
-        showMaintenanceStatus(data);
-        $("maintenance-save-message").textContent = enabled
-          ? "メンテナンスを開始しました。"
-          : "メンテナンスを解除しました。";
-      } catch (error) {
-        if (current === generation && authorized) {
-          $("maintenance-save-message").textContent =
-            "保存に失敗しました：" + errorText(error);
-        }
-      } finally {
-        $("maintenance-save").disabled = false;
-        $("maintenance-enabled").disabled = false;
-      }
-    };
-    $("registration-controls").onsubmit = async (event) => {
-      event.preventDefault();
-      if (!authorized || $("registration-save").disabled) return;
-      const enabled = $("registration-enabled").checked;
-      const text = $("registration-message").value.trim();
-      const value = $("registration-db-limit").value;
-      const limit = value === "" ? null : Number(value) * 1000000;
-      if (
-        !text ||
-        text.length > 200 ||
-        (limit !== null &&
-          (!Number.isSafeInteger(limit) ||
-            limit < 1000000 ||
-            limit > 1099511627776))
-      ) {
-        $("registration-save-message").textContent =
-          "設定値を確認してください。";
-        return;
-      }
-      $("registration-save").disabled = true;
-      const current = generation;
-      try {
-        const { data, error } = await db.rpc("card_admin_set_registration", {
-          p_enabled: enabled,
-          p_message: text,
-          p_database_limit_bytes: limit,
-        });
-        if (error) throw error;
-        if (current !== generation || !authorized) return;
-        showRegistrationStatus(data);
-        $("registration-save-message").textContent = "設定を保存しました。";
-      } catch (error) {
-        if (current === generation && authorized)
-          $("registration-save-message").textContent = errorText(error);
-      } finally {
-        $("registration-save").disabled = false;
-      }
-    };
-    let verseAdminPage = 0,
-      verseHistoryPage = 0,
-      verseRequest = 0,
-      verseHistoryRequest = 0;
-    let verseRows = new Map(),
-      verseEditing = null,
-      verseSaving = false;
-    let contactRows = new Map(),
-      contactDeleting = null,
-      contactDeleteBusy = false;
-    const jstInput = (value) =>
-      new Date(new Date(value).getTime() + 9 * 3600000)
-        .toISOString()
-        .slice(0, 19);
-    function warnAdminLogin(text = "ログインしてください") {
-      const warning = $("admin-warning");
-      warning.textContent = text;
-      warning.hidden = false;
-      clearTimeout(warnAdminLogin.timer);
-      warnAdminLogin.timer = setTimeout(() => {
-        warning.hidden = true;
-      }, 6000);
-    }
-    let forcingLogin = false;
-    function requireAdminAction() {
-      if (authorized && session?.user?.id) return true;
-      warnAdminLogin();
-      $("admin-app").hidden = true;
-      $("admin-nav").hidden = true;
-      $("admin-auth").hidden = false;
-      for (const dialog of document.querySelectorAll("dialog[open]"))
-        dialog.close();
-      history.replaceState(null, "", "#login");
-      window.scrollTo({ top: 0, behavior: "instant" });
-      return false;
-    }
-    forceAdminLogin = () => {
-      if (forcingLogin || !authorized) return;
-      forcingLogin = true;
-      generation++;
-      session = null;
-      hidePrivateData();
-      requireAdminAction();
-      void db.auth
-        .signOut({ scope: "local" })
-        .catch(() => {})
-        .finally(() => {
-          forcingLogin = false;
-        });
-    };
-    document.addEventListener(
-      "click",
-      (event) => {
-        if (
-          event.target.closest(
-            "#admin-app button,#admin-nav button,dialog button",
-          ) &&
-          !requireAdminAction()
-        ) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-        }
-      },
-      true,
-    );
-    document.addEventListener(
-      "submit",
-      (event) => {
-        if (
-          event.target.closest("#admin-app,dialog") &&
-          !requireAdminAction()
-        ) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-        }
-      },
-      true,
-    );
-    async function adminRPC(name, args = {}) {
-      if (!requireAdminAction()) throw Error("ログインしてください");
-      const current = generation;
-      const { data, error } = await db.rpc(name, args);
-      if (error) throw error;
-      if (!authorized || current !== generation)
-        throw Error("ログインしてください");
-      return data;
-    }
-    async function loadVerseAdmin() {
-      if (!requireAdminAction()) return;
-      const request = ++verseRequest,
-        current = generation;
-      $("verse-admin-status").textContent = "コーデを読み込み中…";
-      try {
-        const data = await adminRPC("card_admin_verse_list", {
-          p_family: $("verse-admin-family").value,
-          p_query: $("verse-admin-query").value.trim(),
-          p_offset: verseAdminPage * 24,
-          p_limit: 24,
-        });
-        if (request !== verseRequest || current !== generation || !authorized)
-          return;
-        verseRows = new Map(
-          (data.rows || []).slice(0, 24).map((c) => [c.id, c]),
-        );
-        $("verse-admin-list").innerHTML = [...verseRows.values()]
-          .map(
-            (c) =>
-              `<article class="admin-card verse-catalog-card">${c.image ? `<img src="${esc(c.thumbnail || c.image)}" alt="${esc(c.name)}" loading="lazy">` : `<div class="pending-no-image">画像未登録</div>`}<p class="muted">${esc(c.code)} · ${esc(c.rarity || "未分類")}</p><p>${esc(c.name)}</p><p class="muted">${c.family === "onegai" ? "おねがい" : "ひみつ"} · ${c.part_ids.length}パーツ</p><button type="button" data-verse-admin-edit="${esc(c.id)}">情報を編集</button></article>`,
-          )
-          .join("");
-        $("verse-admin-prev").disabled = verseAdminPage === 0;
-        $("verse-admin-next").disabled = (data.rows || []).length <= 24;
-        $("verse-admin-page").textContent = `${verseAdminPage + 1}ページ`;
-        $("verse-admin-status").textContent = verseRows.size
-          ? `${verseRows.size}コーデを表示`
-          : "該当するコーデがありません。";
-      } catch (error) {
-        if (request === verseRequest && authorized)
-          $("verse-admin-status").textContent = errorText(error);
-      }
-    }
-    const verseField = (label, key, value, type = "text") =>
-      `<label>${label}<input data-verse-field="${key}" type="${type}" value="${esc(value ?? "")}" ${type === "number" ? 'min="0" max="1000000" step="1"' : 'maxlength="2000"'}></label>`;
-    $("verse-admin-list").onclick = (event) => {
-      const button = event.target.closest("[data-verse-admin-edit]");
-      if (!button || !requireAdminAction()) return;
-      verseEditing = verseRows.get(button.dataset.verseAdminEdit);
-      if (!verseEditing) return;
-      const c = verseEditing;
-      $("verse-editor-title").textContent = c.name;
-      $("verse-editor-fields").innerHTML =
-        `<fieldset class="verse-edit-coordinate"><legend>フルコーデ</legend><p class="muted">ID：${esc(c.id)}</p><div class="editor-preview verse-editor-preview">${c.image ? `<img src="${esc(c.image)}" alt="フルコーデ">` : ""}<div class="edit-fields verse-edit-grid">${verseField("コーデ名", "name", c.name)}${verseField("フルコーデコード", "code", c.code)}${verseField("レアリティ", "rarity", c.rarity)}${verseField("画像URL", "image", c.image, "url")}${verseField("一覧画像URL", "thumbnail", c.thumbnail, "url")}</div></div><label>だん・キャンペーン情報（JSON配列）<textarea data-verse-field="appearances" rows="5">${esc(JSON.stringify(c.appearances, null, 2))}</textarea></label></fieldset><h3>構成パーツ</h3>${c.parts.map((p) => `<fieldset data-verse-part="${p.id}"><legend>${esc(p.slot)} · ID ${p.id}</legend><div class="verse-part-editor">${p.image ? `<img src="${esc(p.image)}" alt="${esc(p.slot)}" loading="lazy">` : ""}<div class="verse-edit-grid">${verseField("部位", "slot", p.slot)}${verseField("バズパワー（未確認は空欄）", "buzz", p.buzz, "number")}${verseField("コード（カンマ区切り）", "codes", p.codes.join(", "))}${verseField("画像URL", "image", p.image, "url")}</div></div></fieldset>`).join("")}`;
-      $("verse-editor-status").textContent = "";
-      $("verse-editor-dialog").showModal();
-    };
-    $("verse-editor-close").onclick = () => {
-      if (!verseSaving) $("verse-editor-dialog").close();
-    };
-    $("verse-editor-dialog").addEventListener("cancel", (e) => {
-      if (verseSaving) e.preventDefault();
-    });
-    $("verse-editor-form").onsubmit = async (event) => {
-      event.preventDefault();
-      if (!requireAdminAction() || verseSaving || !verseEditing) return;
-      verseSaving = true;
-      $("verse-editor-save").disabled = true;
-      try {
-        const values = (root) =>
-          Object.fromEntries(
-            [...root.querySelectorAll("[data-verse-field]")].map((e) => [
-              e.dataset.verseField,
-              e.value.trim(),
-            ]),
-          );
-        const coordinate = values(
-          document.querySelector(".verse-edit-coordinate"),
-        );
-        coordinate.appearances = JSON.parse(coordinate.appearances);
-        const parts = [
-          ...$("verse-editor-fields").querySelectorAll("[data-verse-part]"),
-        ].map((root) => {
-          const v = values(root);
-          return {
-            ...v,
-            id: Number(root.dataset.versePart),
-            buzz: v.buzz === "" ? null : Number(v.buzz),
-            codes: v.codes
-              .split(/[,、\n]/)
-              .map((x) => x.trim())
-              .filter(Boolean),
-          };
-        });
-        await adminRPC("card_admin_verse_save", {
-          p_id: verseEditing.id,
-          p_expected: verseEditing.edit_version,
-          p_coordinate: coordinate,
-          p_parts: parts,
-        });
-        $("verse-editor-dialog").close();
-        await loadVerseAdmin();
-        message("コーデとパーツの変更を保存しました。");
-      } catch (error) {
-        if (authorized) $("verse-editor-status").textContent = errorText(error);
-      } finally {
-        verseSaving = false;
-        $("verse-editor-save").disabled = false;
-      }
-    };
-    $("reload-verse").onclick = loadVerseAdmin;
-    $("verse-admin-search").onclick = () => {
-      verseAdminPage = 0;
-      loadVerseAdmin();
-    };
-    $("verse-admin-family").onchange = () => {
-      verseAdminPage = 0;
-      loadVerseAdmin();
-    };
-    $("verse-admin-query").onkeydown = (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        verseAdminPage = 0;
-        loadVerseAdmin();
-      }
-    };
-    $("verse-admin-prev").onclick = () => {
-      verseAdminPage = Math.max(0, verseAdminPage - 1);
-      loadVerseAdmin();
-    };
-    $("verse-admin-next").onclick = () => {
-      verseAdminPage++;
-      loadVerseAdmin();
-    };
-    async function loadVerseHistory() {
-      if (!requireAdminAction()) return;
-      const request = ++verseHistoryRequest;
-      try {
-        const data = await adminRPC("card_admin_verse_history", {
-          p_offset: verseHistoryPage * 20,
-          p_limit: 20,
-        });
-        if (request !== verseHistoryRequest || !authorized) return;
-        $("verse-history-list").innerHTML =
-          (data.rows || [])
-            .slice(0, 20)
-            .map((row) => {
-              const v = row.after_data || row.before_data || {};
-              const changed = [
-                ...new Set([
-                  ...Object.keys(row.before_data || {}),
-                  ...Object.keys(row.after_data || {}),
-                ]),
-              ].filter(
-                (k) =>
-                  JSON.stringify(row.before_data?.[k]) !==
-                  JSON.stringify(row.after_data?.[k]),
-              );
-              return `<details class="compact-history"><summary><span class="history-action">${{ INSERT: "追加", UPDATE: "更新", DELETE: "削除" }[row.operation]}</span><strong>${esc(v.name || v.codes?.join(" / ") || row.target_id)}</strong><small>${row.entity === "coordinate" ? "コーデ" : "パーツ"} · ${esc(timestamp(row.recorded_at))}</small></summary><p class="muted">${esc(row.target_id)} · ${esc(changed.map((k) => labels[k] || k).join("、"))}</p></details>`;
-            })
-            .join("") || '<p class="muted">導入後の履歴はまだありません。</p>';
-        $("verse-history-prev").disabled = verseHistoryPage === 0;
-        $("verse-history-next").disabled = (data.rows || []).length <= 20;
-        $("verse-history-page").textContent = `${verseHistoryPage + 1}ページ`;
-      } catch (error) {
-        if (authorized) message(errorText(error));
-      }
-    }
-    document.querySelectorAll("[data-import-catalog]").forEach(
-      (button) =>
-        (button.onclick = () => {
-          if (!requireAdminAction()) return;
-          const verse = button.dataset.importCatalog === "verse";
-          $("card-import-body").hidden = verse;
-          $("verse-import-body").hidden = !verse;
-          document
-            .querySelectorAll("[data-import-catalog]")
-            .forEach((b) =>
-              b.setAttribute("aria-pressed", String(b === button)),
-            );
-          if (verse) loadVerseHistory();
-        }),
-    );
-    $("reload-verse-history").onclick = loadVerseHistory;
-    $("verse-history-prev").onclick = () => {
-      verseHistoryPage = Math.max(0, verseHistoryPage - 1);
-      loadVerseHistory();
-    };
-    $("verse-history-next").onclick = () => {
-      verseHistoryPage++;
-      loadVerseHistory();
-    };
-    $("reload-operations").onclick = () => {
-      usageFetchedAt = 0;
-      loadUsage();
-    };
-    $("contact-delete-cancel").onclick = () => {
-      if (!contactDeleteBusy) $("contact-delete-dialog").close();
-    };
-    $("contact-delete-dialog").addEventListener("cancel", (e) => {
-      if (contactDeleteBusy) e.preventDefault();
-    });
-    $("contact-delete-confirm").onclick = async () => {
-      if (!requireAdminAction() || contactDeleteBusy || !contactDeleting)
-        return;
-      contactDeleteBusy = true;
-      $("contact-delete-confirm").disabled = true;
-      try {
-        await adminRPC("card_admin_contact_delete", {
-          p_id: contactDeleting.id,
-          p_updated_at: contactDeleting.updated_at,
-        });
-        $("contact-delete-dialog").close();
-        contactDeleting = null;
-        await loadContacts();
-        message("対応済みのお問い合わせを削除しました。");
-      } catch (error) {
-        if (authorized)
-          $("contact-delete-status").textContent = errorText(error);
-      } finally {
-        contactDeleteBusy = false;
-        $("contact-delete-confirm").disabled = false;
-      }
-    };
-
-    async function initializeSession() {
-      const { data, error } = await db.auth.getSession();
-      if (error) throw error;
-      await checkAccess(data?.session || null);
-    }
-    await Promise.race([
-      initializeSession(),
-      new Promise((_, reject) => {
-        startupTimer = setTimeout(
-          () =>
-            reject(
-              Error(
-                "ログイン状態の復元がタイムアウトしました。「ログイン状態をリセット」で再試行してください。",
-              ),
-            ),
-          25000,
-        );
-      }),
-    ]);
-    clearTimeout(startupTimer);
-    window.ADMIN_STARTUP?.ready(persistSession);
-  } catch (error) {
-    clearTimeout(startupTimer);
-    window.ADMIN_STARTUP?.fail(error?.message || String(error));
-    if (!window.ADMIN_STARTUP)
-      document.getElementById("admin-auth-message").textContent =
-        "起動できませんでした。" + (error?.message || error);
+:root {
+  font-family: "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
+  color: #363045;
+  background: #f7f5fa;
+  --accent: #7959a5;
+  --line: #e5dfed;
+}
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+body {
+  margin: 0;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  background: white;
+  border-bottom: 1px solid var(--line);
+  padding: 20px max(20px, calc((100vw - 1200px) / 2));
+}
+header strong {
+  font-size: 20px;
+}
+header div {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  min-height: 42px;
+  padding: 9px 15px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid #b39ace;
+  outline-offset: 2px;
+}
+.primary,
+.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.danger {
+  background: #a54c64;
+  color: white;
+}
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+}
+main {
+  max-width: 1200px;
+  margin: auto;
+  padding: 35px 20px;
+}
+h1 {
+  font-size: 26px;
+}
+h2 {
+  font-size: 20px;
+}
+p {
+  line-height: 1.8;
+}
+label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+}
+input,
+select,
+textarea {
+  width: 100%;
+  padding: 11px;
+  border: 1px solid #d8ccdf;
+  border-radius: 9px;
+  background: white;
+  margin-top: 8px;
+}
+textarea {
+  min-height: 85px;
+  resize: vertical;
+}
+.login-panel {
+  max-width: 440px;
+  margin: 40px auto;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 30px;
+}
+.login-panel label {
+  margin-bottom: 20px;
+}
+.login-panel .primary {
+  width: 100%;
+}
+.login-panel a {
+  font-size: 13px;
+  color: var(--accent);
+}
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr 230px;
+  gap: 12px;
+}
+.admin-card-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.admin-card {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  padding: 14px;
+  min-width: 0;
+}
+.admin-card img {
+  width: 100%;
+  height: 180px;
+  object-fit: contain;
+}
+.admin-card p {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  margin: 8px 0;
+}
+.admin-card button {
+  width: 100%;
+}
+.override-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  background: #f3eafd;
+  color: #7959a5;
+  border-radius: 7px;
+  font-size: 11px;
+}
+.pagination {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin: 25px 0;
+  align-items: center;
+}
+.table-wrap {
+  overflow: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  background: white;
+  font-size: 13px;
+  white-space: nowrap;
+}
+td,
+th {
+  padding: 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+td small {
+  display: block;
+  color: #786b87;
+  max-width: 250px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.muted {
+  font-size: 12px;
+  color: #81728d;
+  overflow-wrap: anywhere;
+}
+dialog {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 25px;
+  width: calc(100% - 30px);
+  max-width: 940px;
+  max-height: 90dvh;
+  overflow: auto;
+}
+dialog::backdrop {
+  background: #34253c88;
+}
+.editor-preview {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 24px;
+}
+.editor-preview img {
+  width: 100%;
+  position: sticky;
+  top: 0;
+  max-height: 280px;
+  object-fit: contain;
+}
+.edit-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+#admin-message,
+#admin-auth-message,
+#edit-message {
+  font-size: 13px;
+  color: #99506b;
+}
+.log-row {
+  padding: 16px;
+  margin: 12px 0;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.log-row p {
+  font-size: 13px;
+  margin: 6px 0;
+}
+#confirm-dialog {
+  max-width: 430px;
+}
+@media (max-width: 760px) {
+  .admin-card-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-})();
+  .search-row {
+    grid-template-columns: 1fr;
+  }
+  .editor-preview {
+    grid-template-columns: 1fr;
+  }
+  .editor-preview img {
+    position: static;
+    max-height: 160px;
+  }
+  .edit-fields {
+    grid-template-columns: 1fr;
+  }
+  header div {
+    width: 100%;
+  }
+  header button {
+    font-size: 12px;
+    padding: 8px;
+  }
+  main {
+    padding: 25px 14px;
+  }
+  dialog {
+    padding: 20px;
+  }
+  .editor-actions {
+    flex-wrap: wrap;
+  }
+}
+
+.contact-filter {
+  max-width: 240px;
+  margin: 16px 0;
+}
+.contact-message {
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 22px;
+  border-radius: 16px;
+  margin: 16px 0;
+}
+.contact-message h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+}
+.contact-message .message-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.9;
+  margin: 16px 0;
+  background: #faf8fc;
+  padding: 16px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+.contact-message .contact-meta {
+  font-size: 13px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.contact-message .contact-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+.contact-message select {
+  max-width: 180px;
+  margin: 0;
+}
+.contact-message .contact-id {
+  color: #81728d;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+#connection-report {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 14px;
+  background: #f6f2f8;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: left;
+}
+
+/* 入力フォーカス時のiOS自動ズームを防ぐ */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+.heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.notification-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 2px 6px;
+  border-radius: 12px;
+  background: #ffe0e7;
+  color: #ad385c;
+  font-size: 12px;
+  font-weight: 700;
+}
+.contact-message {
+  border-left: 5px solid #ed99ae;
+  background: #fff8fa;
+}
+.contact-message.status-working {
+  border-left-color: #e6bc61;
+  background: #fffaf0;
+}
+.contact-message.status-done {
+  border-left-color: #8bbca8;
+  background: #f4fcf7;
+}
+.status-label {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 700;
+  background: #ffe1e9;
+  color: #a33d58;
+}
+.status-working .status-label {
+  background: #ffedc6;
+  color: #876320;
+}
+.status-done .status-label {
+  background: #dff2e6;
+  color: #387359;
+}
+.ownership-detail {
+  min-width: 145px;
+}
+.ownership-detail small {
+  display: block;
+  margin-top: 3px;
+  white-space: nowrap;
+}
+.album-id-cell {
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+}
+.compact-button {
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.delete-ack {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.delete-ack input {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+#delete-user-dialog,
+#sync-dialog {
+  width: min(540px, calc(100vw - 28px));
+}
+#delete-user-label {
+  padding: 14px;
+  background: #f6f0fa;
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .section-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .heading-actions {
+    width: 100%;
+  }
+}
+
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.usage-metric {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.usage-metric span,
+.usage-metric small {
+  color: #786d88;
+  font-size: 12px;
+}
+.usage-metric strong {
+  font-size: 23px;
+  color: var(--accent);
+}
+.usage-panel {
+  background: #fff;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  margin: 20px 0;
+}
+.usage-panel h2 {
+  font-size: 18px;
+  margin-top: 0;
+}
+.registration-state {
+  display: inline-block;
+  padding: 6px 14px;
+  background: #e0f2e7;
+  color: #397451;
+  border-radius: 20px;
+  font-weight: 700;
+}
+.registration-state.paused {
+  background: #ffe2e9;
+  color: #a0395d;
+}
+.registration-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.registration-toggle input {
+  width: 22px;
+  height: 22px;
+}
+#registration-controls {
+  max-width: 640px;
+  display: grid;
+  gap: 14px;
+}
+#registration-controls label:not(.registration-toggle) {
+  display: grid;
+  gap: 8px;
+}
+#registration-controls textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  resize: vertical;
+}
+.dashboard-link {
+  display: inline-block;
+  color: var(--accent);
+  padding: 10px 0;
+  text-decoration: none;
+}
+.traffic-chart {
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  height: 100px;
+}
+.traffic-column {
+  display: flex;
+  align-items: flex-end;
+  flex: 1;
+  height: 100%;
+}
+.traffic-column span {
+  width: 100%;
+  border-radius: 5px 5px 0 0;
+  background: #bca7d8;
+}
+@media (max-width: 600px) {
+  .usage-panel {
+    padding: 16px;
+  }
+  .usage-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .usage-metric {
+    padding: 13px;
+  }
+}
+
+.quota-bar {
+  height: 6px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #eee8f5;
+}
+.quota-bar i {
+  height: 100%;
+  display: block;
+  background: #a38ac2;
+}
+.quota-warning .quota-bar i {
+  background: #d7a446;
+}
+.quota-danger .quota-bar i {
+  background: #d97894;
+}
+
+.sync-progress-panel {
+  padding: 20px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 18px;
+  margin: 20px 0;
+}
+.sync-progress-panel h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.sync-progress-bar {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #eee8f5;
+  margin: 14px 0;
+}
+.sync-progress-bar > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: #aa8ecb;
+  transition: width 0.3s ease;
+}
+.sync-progress-bar.has-failures > span {
+  background: #d5a462;
+}
+.sync-progress-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.sync-progress-counts > span {
+  padding: 8px 12px;
+  background: #f7f3fb;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.sync-progress-counts strong {
+  display: inline-block;
+  margin-left: 8px;
+  color: var(--accent);
+  font-size: 15px;
+}
+#sync-progress-time {
+  overflow-wrap: anywhere;
+}
+
+/* 管理画面の表示だけを変更。認可・取得・保存・通信には関与しません。 */
+:root {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", Meiryo,
+    sans-serif;
+  color: #4d4250;
+  background: #f8f6fa;
+  --accent: #bb628a;
+  --line: #eae3ec;
+  --muted: #887d8e;
+  --pink-soft: #fff0f6;
+  --lavender-soft: #f2edfa;
+  --mint-soft: #edf8f4;
+}
+body {
+  min-width: 300px;
+}
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: #eadce566;
+}
+button {
+  min-height: 40px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #fff;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+  box-shadow: none;
+}
+button:hover:not(:disabled) {
+  background: #fff5f9;
+  border-color: #dcbacc;
+}
+button:active:not(:disabled) {
+  background: #f9e6ef;
+}
+button:disabled {
+  opacity: 0.45;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #ca8aab;
+  outline-offset: 3px;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: #c9a1b9;
+  box-shadow: 0 0 0 3px #bd88a615;
+}
+.primary {
+  color: #fff;
+  background: #b9688e;
+  border-color: #b9688e;
+}
+.primary:hover:not(:disabled) {
+  color: #fff;
+  background: #a9537b;
+  border-color: #a9537b;
+}
+.primary:active:not(:disabled) {
+  color: #fff;
+  background: #964369;
+}
+.danger {
+  color: #b45a65;
+  background: #fff3f4;
+  border-color: #efcfd3;
+}
+.danger:hover:not(:disabled) {
+  color: #a74350;
+  background: #ffe5e9;
+  border-color: #e5acb6;
+}
+#delete-user-confirm,
+#confirm-remove {
+  color: white;
+  background: #bc6270;
+  border-color: #bc6270;
+}
+input,
+select,
+textarea {
+  font-size: 16px;
+  line-height: 1.5;
+  padding: 12px 14px;
+  background: #fdfcfe;
+  border: 1px solid #e4dce8;
+  border-radius: 12px;
+  margin-top: 7px;
+}
+input::placeholder,
+textarea::placeholder {
+  color: #a69cae;
+}
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #746779;
+}
+h1 {
+  font-size: clamp(22px, 2.3vw, 28px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  margin: 0;
+}
+h2 {
+  font-size: 18px;
+  line-height: 1.5;
+  font-weight: 650;
+}
+h3 {
+  font-size: 15px;
+}
+p {
+  line-height: 1.85;
+}
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.eyebrow {
+  letter-spacing: 0.12em;
+  color: #ae7897;
+  font-size: 11px;
+  font-weight: 600;
+}
+header {
+  padding: 20px 28px;
+  background: #fffdfef2;
+  border-bottom: 1px solid var(--line);
+  gap: 18px;
+}
+.admin-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.admin-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 43px;
+  height: 43px;
+  flex: 0 0 43px;
+  border-radius: 14px;
+  color: #b6658b;
+  background: #faeaf2;
+}
+.admin-brand-mark svg {
+  width: 25px;
+  height: 25px;
+}
+.admin-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.admin-brand-text small {
+  color: #9b8699;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+.admin-brand-text strong {
+  font-size: 19px;
+  font-weight: 700;
+}
+#admin-nav {
+  gap: 6px;
+}
+#admin-nav button {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #82748a;
+  font-weight: 550;
+}
+#admin-nav button svg {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 19px;
+  opacity: 0.9;
+}
+#admin-nav button.active {
+  background: #faeaf3;
+  border-color: #f0dbe7;
+  color: #ad537f;
+  font-weight: 700;
+}
+#admin-nav button:hover {
+  background: #f6f0f8;
+  color: #9f5f87;
+}
+#admin-logout {
+  margin-top: 20px;
+}
+.notification-badge {
+  margin-left: auto;
+  background: #f7d4e1;
+  color: #a24971;
+  padding: 2px 6px;
+  font-size: 10px;
+  min-width: 20px;
+  text-align: center;
+}
+main {
+  max-width: 1280px;
+  padding: 38px 28px;
+}
+body:has(#admin-app:not([hidden])) > header {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 232px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 30px 18px;
+  border-right: 1px solid var(--line);
+  border-bottom: 0;
+}
+body:has(#admin-app:not([hidden])) #admin-nav {
+  display: flex;
+  flex-direction: column;
+  margin-top: 22px;
+}
+body:has(#admin-app:not([hidden])) #admin-nav button {
+  width: 100%;
+  min-height: 47px;
+  text-align: left;
+  padding: 11px 14px;
+}
+body:has(#admin-app:not([hidden])) main {
+  margin-left: 232px;
+  margin-right: 0;
+  max-width: none;
+}
+#admin-app {
+  max-width: 1240px;
+  margin: auto;
+}
+#admin-account {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  color: #97879d;
+  font-size: 11px;
+  margin: 0 0 25px;
+  overflow-wrap: anywhere;
+}
+.section-heading {
+  margin-bottom: 19px;
+  align-items: center;
+  gap: 16px;
+}
+.section-heading button {
+  flex: none;
+}
+.section-heading h2 {
+  margin: 0;
+}
+.section-heading + p {
+  margin: -4px 0 23px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.heading-actions {
+  gap: 9px;
+}
+.login-panel {
+  max-width: 450px;
+  padding: 38px;
+  margin: 38px auto;
+  border-radius: 24px;
+  border-color: #e9dfec;
+  box-shadow: 0 12px 45px #715a7910;
+}
+.login-panel h1 {
+  margin: 14px 0 12px;
+}
+.login-panel > p {
+  font-size: 12px;
+  color: var(--muted);
+}
+#admin-login {
+  margin: 28px 0 20px;
+}
+#admin-login .primary {
+  min-height: 48px;
+  border-radius: 13px;
+  margin-top: 5px;
+}
+#connection-test,
+#auth-reset {
+  font-size: 11px;
+  padding: 8px 11px;
+  min-height: 34px;
+  margin: 4px 4px 4px 0;
+}
+#public-site-link {
+  display: block;
+  text-align: center;
+  margin-top: 22px;
+  text-decoration: none;
+}
+#connection-report {
+  background: #f5f1f8;
+  border: 1px solid #eee5f1;
+  color: #776481;
+  font-size: 11px;
+}
+.table-wrap {
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: white;
+  overscroll-behavior-x: contain;
+}
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+th {
+  background: #f6f2f8;
+  color: #8c7e94;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 16px 18px;
+  border-color: #eae4ed;
+}
+td {
+  padding: 18px;
+  color: #6f6378;
+  border-color: #f0ebf3;
+}
+tbody tr:last-child td {
+  border-bottom: none;
+}
+tbody tr:hover {
+  background: #fffbfd;
+}
+#user-list td:first-child {
+  color: #504258;
+  font-weight: 650;
+}
+.album-id-cell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.ownership-detail {
+  min-width: 150px;
+}
+.ownership-detail strong {
+  font-size: 12px;
+  color: #a26189;
+}
+.ownership-detail small {
+  color: #9c90a4;
+  font-size: 10px;
+  line-height: 1.6;
+  margin-top: 2px;
+}
+.compact-button {
+  font-size: 11px;
+  padding: 7px 11px;
+  min-height: 32px;
+  border-radius: 9px;
+}
+.pagination {
+  gap: 13px;
+  margin: 27px 0;
+}
+.pagination button {
+  min-width: 65px;
+  min-height: 36px;
+  font-size: 12px;
+  padding: 7px 13px;
+}
+.pagination span {
+  color: #8c7c95;
+  font-size: 11px;
+}
+.search-row {
+  margin: 23px 0 17px;
+  grid-template-columns: minmax(0, 1fr) 220px;
+}
+.search-row input,
+.search-row select {
+  margin: 0;
+  background: white;
+}
+#admin-count {
+  font-size: 12px;
+  color: #9a879f;
+  margin: 16px 0;
+}
+.admin-card-list {
+  gap: 17px;
+}
+.admin-card {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-radius: 17px;
+  border-color: #e8e1ec;
+  box-shadow: 0 3px 12px #7b618109;
+}
+.admin-card img {
+  height: 185px;
+  border-radius: 6px;
+  margin: 0 0 9px;
+}
+.admin-card p {
+  color: #63536e;
+  font-size: 12px;
+  margin: 7px 0;
+  line-height: 1.65;
+}
+.admin-card .muted {
+  color: #a08eaa;
+  font-size: 10px;
+}
+.admin-card button {
+  margin-top: auto;
+  background: #fbf4f9;
+  border-color: #eddfeb;
+  color: #a36b93;
+  font-size: 12px;
+}
+.override-badge {
+  align-self: flex-start;
+  background: #f0e8f7;
+  color: #9773b1;
+  border-radius: 20px;
+  font-size: 9px;
+  margin: 4px 0 12px;
+}
+.sync-progress-panel {
+  background: #fdfbff;
+  border-color: #e7deef;
+  padding: 22px;
+  border-radius: 18px;
+}
+.sync-progress-panel > p {
+  margin: 10px 0;
+}
+.sync-progress-counts > span {
+  background: #f4eef9;
+  color: #9a83af;
+  border: 1px solid #ede3f4;
+}
+.sync-progress-counts strong {
+  color: #a075ae;
+}
+.sync-progress-panel .muted {
+  font-size: 11px;
+}
+.contact-filter {
+  max-width: 230px;
+  margin-bottom: 23px;
+}
+.contact-message {
+  padding: 26px;
+  border-radius: 20px;
+  border-width: 1px;
+  border-left-width: 4px;
+  border-color: #efd8e0;
+  border-left-color: #d78da6;
+  background: #fffafb;
+  box-shadow: 0 4px 16px #71576506;
+}
+.contact-message.status-working {
+  border-color: #eddfbc;
+  border-left-color: #d8b86e;
+  background: #fffdf7;
+}
+.contact-message.status-done {
+  border-color: #d6e8df;
+  border-left-color: #95bbaa;
+  background: #f9fdfa;
+}
+.contact-message h2 {
+  margin-top: 14px;
+  font-size: 17px;
+  color: #665269;
+}
+.status-label {
+  font-size: 11px;
+  padding: 5px 12px;
+  font-weight: 650;
+}
+.contact-meta {
+  color: #9d8ca2;
+  font-size: 12px !important;
+}
+.contact-id {
+  color: #b2a3b7 !important;
+  font-size: 10px !important;
+}
+.contact-message .message-body {
+  background: white;
+  border: 1px solid #eee7ee;
+  padding: 19px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.contact-actions select {
+  font-size: 16px;
+}
+.log-row {
+  padding: 22px 24px;
+  border-radius: 16px;
+  border-color: #e7e1ec;
+  margin: 14px 0;
+}
+.log-row strong {
+  color: #9a719e;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+}
+.log-row p {
+  font-size: 12px;
+  margin-top: 9px;
+  color: #887892;
+}
+.usage-grid {
+  gap: 15px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: 22px 0;
+}
+.usage-metric {
+  padding: 24px 22px;
+  border-radius: 18px;
+  border-color: #e7dfed;
+  gap: 10px;
+  background: #fffdff;
+}
+.usage-metric:nth-child(3n + 2) {
+  background: #f6f2fc;
+  border-color: #e9dff2;
+}
+.usage-metric:nth-child(3n + 3) {
+  background: #f4faf7;
+  border-color: #e0ece5;
+}
+.usage-metric span {
+  font-size: 11px;
+  color: #95819f;
+}
+.usage-metric strong {
+  color: #a7658d;
+  font-size: clamp(21px, 2.3vw, 29px);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.usage-metric small {
+  color: #a08fa6;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.usage-metric.quota-warning {
+  background: #fff9e9;
+  border-color: #edddb9;
+}
+.usage-metric.quota-danger {
+  background: #fff0f3;
+  border-color: #edc8d1;
+}
+.quota-bar {
+  height: 5px;
+  background: #eee7f0;
+}
+.quota-bar i {
+  background: #c691b3;
+}
+.usage-panel {
+  padding: 28px;
+  border-radius: 20px;
+  border-color: #e8e0ed;
+  margin: 25px 0;
+  box-shadow: 0 3px 14px #70567a04;
+}
+.usage-panel h2 {
+  color: #6d5277;
+  font-size: 17px;
+}
+.usage-panel .section-heading {
+  margin-bottom: 15px;
+}
+.usage-panel > .muted {
+  font-size: 11px;
+}
+#registration-controls,
+#maintenance-controls {
+  max-width: 670px;
+  display: grid;
+  gap: 18px;
+}
+#maintenance-controls label:not(.registration-toggle) {
+  display: grid;
+  gap: 4px;
+}
+#maintenance-controls > .primary,
+#registration-controls > .primary {
+  justify-self: start;
+  min-width: 150px;
+}
+.registration-state {
+  padding: 7px 13px;
+  font-size: 12px;
+  border: 1px solid #d4e8da;
+  background: #f0f9f2;
+  color: #659274;
+}
+.registration-state.paused {
+  border-color: #efd0dd;
+  background: #fff0f5;
+  color: #b96185;
+}
+.registration-toggle {
+  gap: 12px;
+  padding: 15px 18px;
+  border: 1px solid #eee4ef;
+  border-radius: 13px;
+  background: #fdf9fc;
+  cursor: pointer;
+}
+.registration-toggle input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 39px;
+  height: 23px;
+  flex: 0 0 39px;
+  margin: 0;
+  border: none;
+  border-radius: 20px;
+  padding: 0;
+  background: #dfd8e4;
+  cursor: pointer;
+}
+.registration-toggle input::before {
+  content: "";
+  display: block;
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 17px;
+  height: 17px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px #5a376a22;
+  transition: transform 0.15s;
+}
+.registration-toggle input:checked {
+  background: #c489ab;
+}
+.registration-toggle input:checked::before {
+  transform: translateX(16px);
+}
+.registration-toggle input:focus-visible {
+  outline: 2px solid #be8eae;
+  outline-offset: 3px;
+}
+#maintenance-stop {
+  background: #699c8d;
+  border-color: #699c8d;
+  color: #fff;
+  white-space: normal;
+}
+#maintenance-stop:hover:not(:disabled) {
+  background: #538576;
+  border-color: #538576;
+}
+#registration-free-preset {
+  justify-self: start;
+  font-size: 11px;
+  color: #92709c;
+  background: #f8f4fb;
+}
+.dashboard-link {
+  color: #a477a8;
+  font-size: 11px;
+  text-decoration: none;
+}
+.dashboard-link:hover {
+  color: #805388;
+}
+#usage-detail-tables,
+#usage-tables {
+  font-size: 11px;
+}
+.traffic-column span {
+  background: #c5b1d9;
+}
+#admin-message:not(:empty),
+#edit-message:not(:empty),
+#maintenance-save-message:not(:empty),
+#registration-save-message:not(:empty) {
+  padding: 13px 16px;
+  border-radius: 11px;
+  background: #fff0f5;
+  font-size: 12px;
+  color: #af5c83;
+}
+dialog {
+  border-color: #e9dfe9;
+  border-radius: 23px;
+  padding: 30px;
+  box-shadow: 0 20px 80px #5c41662e;
+}
+dialog::backdrop {
+  background: #45394f70;
+  backdrop-filter: blur(4px);
+}
+dialog .section-heading {
+  padding-bottom: 15px;
+  border-bottom: 1px solid #eee7f0;
+}
+dialog h2 {
+  font-size: 19px;
+}
+dialog p {
+  font-size: 13px;
+}
+#edit-close,
+#delete-user-close {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  font-size: 25px;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  color: #ad96b5;
+  border-radius: 50%;
+}
+#edit-close:hover,
+#delete-user-close:hover {
+  background: #faedf5;
+}
+.editor-preview {
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 28px;
+}
+.editor-preview img {
+  border-radius: 8px;
+}
+.edit-fields {
+  gap: 18px;
+}
+.editor-actions {
+  border-color: #eee6f0;
+  gap: 10px;
+  margin-top: 28px;
+}
+#delete-user-label {
+  background: #fff0f4;
+  color: #ad6282;
+  border: 1px solid #f1d9e4;
+  font-size: 13px;
+}
+.delete-ack {
+  font-weight: 500;
+  font-size: 13px;
+  background: #faf7fb;
+  padding: 12px;
+  border-radius: 10px;
+}
+@media (min-width: 1550px) {
+  body:has(#admin-app:not([hidden])) main {
+    padding-right: max(34px, calc((100vw - 1520px) / 2));
+    padding-left: max(34px, calc((100vw - 1520px) / 2));
+  }
+}
+@media (max-width: 1000px) {
+  body:has(#admin-app:not([hidden])) > header {
+    width: 206px;
+    padding: 25px 12px;
+  }
+  body:has(#admin-app:not([hidden])) main {
+    margin-left: 206px;
+    padding: 30px 20px;
+  }
+  .admin-brand-text strong {
+    font-size: 17px;
+  }
+  .admin-card-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  header,
+  body:has(#admin-app:not([hidden])) > header {
+    position: relative;
+    width: auto;
+    padding: 18px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    gap: 16px;
+  }
+  body:has(#admin-app:not([hidden])) > header {
+    display: block;
+  }
+  .admin-brand {
+    width: auto;
+  }
+  .admin-brand-text {
+    width: auto;
+  }
+  .admin-brand-text strong {
+    font-size: 18px;
+  }
+  #admin-nav,
+  body:has(#admin-app:not([hidden])) #admin-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 18px;
+  }
+  #admin-nav button,
+  body:has(#admin-app:not([hidden])) #admin-nav button {
+    width: 100%;
+    min-height: 57px;
+    flex-direction: column;
+    justify-content: center;
+    padding: 8px 5px;
+    gap: 5px;
+    font-size: 11px;
+    border-radius: 11px;
+  }
+  #admin-nav button svg {
+    width: 16px;
+    height: 16px;
+    flex-basis: 16px;
+  }
+  #admin-logout {
+    margin-top: 0;
+  }
+  .notification-badge {
+    position: absolute;
+    top: 0;
+    right: 1px;
+    margin: 0;
+    font-size: 9px;
+    min-width: 17px;
+  }
+  #admin-nav button {
+    position: relative;
+  }
+  main,
+  body:has(#admin-app:not([hidden])) main {
+    margin: 0;
+    padding: 23px 14px 40px;
+  }
+  #admin-account {
+    margin-bottom: 22px;
+    font-size: 10px;
+  }
+  .section-heading {
+    align-items: center;
+    margin-bottom: 17px;
+    gap: 12px;
+  }
+  .section-heading h1 {
+    font-size: 22px;
+  }
+  .section-heading button {
+    font-size: 11px;
+    min-height: 36px;
+    padding: 8px 11px;
+  }
+  .login-panel {
+    margin: 24px auto;
+    padding: 28px 24px;
+  }
+  .table-wrap {
+    border-radius: 13px;
+  }
+  th {
+    padding: 13px 14px;
+    font-size: 10px;
+  }
+  td {
+    padding: 16px 14px;
+  }
+  .admin-card-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .admin-card {
+    padding: 11px;
+    border-radius: 14px;
+  }
+  .admin-card img {
+    height: 165px;
+  }
+  .admin-card p {
+    font-size: 11px;
+  }
+  .admin-card button {
+    min-height: 35px;
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+  .search-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .heading-actions {
+    width: auto;
+  }
+  .usage-panel {
+    padding: 20px 16px;
+    margin: 20px 0;
+    border-radius: 16px;
+  }
+  .usage-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .usage-metric {
+    padding: 17px 13px;
+    border-radius: 14px;
+  }
+  .usage-metric strong {
+    font-size: 23px;
+  }
+  .usage-metric small {
+    font-size: 9px;
+  }
+  .contact-message {
+    padding: 21px 17px;
+    border-radius: 16px;
+  }
+  .contact-message .message-body {
+    padding: 15px;
+  }
+  .contact-message .contact-actions {
+    flex-wrap: wrap;
+  }
+  .log-row {
+    padding: 19px 17px;
+  }
+  dialog {
+    padding: 23px 18px;
+    border-radius: 20px;
+    max-height: 88dvh;
+  }
+  .editor-preview {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+  .editor-preview img {
+    position: static;
+    height: 170px;
+  }
+  .edit-fields {
+    grid-template-columns: 1fr;
+  }
+  .editor-actions {
+    flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  button,
+  .registration-toggle input::before {
+    transition: none;
+  }
+}
+
+/* 未登録情報・手動SQLの追加履歴 */
+.search-row {
+  grid-template-columns: minmax(180px, 1fr) 180px 230px;
+}
+.missing-fields-badge {
+  display: block;
+  align-self: flex-start;
+  margin: 5px 0 13px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #fff5de;
+  border: 1px solid #efdeb2;
+  color: #a08047;
+  font-size: 10px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.import-layout {
+  display: grid;
+  grid-template-columns: 235px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  margin-top: 25px;
+}
+.import-batches {
+  display: grid;
+  gap: 9px;
+}
+.import-batch {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 7px;
+  padding: 16px;
+  background: #fff;
+}
+.import-batch strong {
+  font-size: 12px;
+  color: #887091;
+  font-weight: 650;
+}
+.import-batch span {
+  font-size: 11px;
+  color: #a48dac;
+  font-weight: 400;
+}
+.import-batch[aria-pressed="true"] {
+  border-color: #dcadca;
+  background: #fff0f7;
+}
+.import-details {
+  min-width: 0;
+}
+.import-details h2 {
+  margin-top: 0;
+  font-size: 17px;
+}
+.import-mode-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  width: max-content;
+  max-width: 100%;
+  background: #eee8f2;
+  border-radius: 13px;
+}
+.import-mode-tabs button {
+  border: none;
+  background: transparent;
+  color: #9b87a5;
+  min-height: 34px;
+  padding: 8px 13px;
+  font-size: 12px;
+}
+.import-mode-tabs button[aria-pressed="true"] {
+  background: #fff;
+  color: #a5618c;
+  box-shadow: 0 2px 6px #79628410;
+}
+#import-card-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.import-card img {
+  height: 160px;
+}
+.import-card button {
+  margin-top: 13px;
+  font-size: 11px;
+  padding: 8px;
+}
+.import-operation {
+  align-self: flex-start;
+  padding: 4px 8px;
+  background: #ecf6ef;
+  color: #6e9a80;
+  font-size: 10px;
+  border-radius: 20px;
+}
+.operation-update {
+  background: #f1eaf8;
+  color: #9b78b7;
+}
+.operation-delete {
+  background: #fae9ee;
+  color: #b17a8d;
+}
+#import-message:not(:empty) {
+  padding: 13px 16px;
+  border-radius: 11px;
+  background: #fff6e8;
+  color: #a38b64;
+  font-size: 12px;
+}
+@media (max-width: 1100px) {
+  .search-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  #admin-query {
+    grid-column: 1 / -1;
+  }
+  .import-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .import-batches {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .search-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #admin-nav,
+  body:has(#admin-app:not([hidden])) #admin-nav {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  #import-card-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .import-layout {
+    gap: 16px;
+  }
+  .import-batch {
+    padding: 12px;
+  }
+  .import-batch strong {
+    font-size: 11px;
+  }
+}
+
+/* 保留カード管理 */
+.pending-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.pending-tools span {
+  font-size: 12px;
+  color: var(--muted, #756f7e);
+}
+.pending-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: #fff0d5;
+  color: #88613a;
+  font-size: 12px;
+  font-weight: 600;
+}
+.pending-no-image {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 3/4;
+  background: #f2eef4;
+  border-radius: 12px;
+  color: #8b8490;
+}
+#pending-dialog {
+  width: min(820px, calc(100vw - 32px));
+  max-height: 90dvh;
+  overflow: auto;
+}
+.pending-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+.pending-fields label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pending-fields input,
+.pending-fields textarea,
+.pending-fields select,
+#pending-note {
+  font-size: 16px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.pending-fields small {
+  font-size: 11px;
+  color: #817886;
+}
+.pending-note-label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pending-allow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 18px 0;
+  font-size: 13px;
+}
+.pending-allow input {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+@media (max-width: 520px) {
+  .pending-fields {
+    grid-template-columns: 1fr;
+  }
+  .pending-tools button {
+    font-size: 13px;
+  }
+  .pending-tools span {
+    flex-basis: 100%;
+  }
+  #pending-dialog {
+    padding: 18px;
+  }
+  .editor-actions {
+    flex-wrap: wrap;
+  }
+}
+
+.pending-review-reason {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff5e5;
+  color: #826345;
+  font-size: 13px;
+  line-height: 1.7;
+}
+#pending-evidence-url {
+  font-size: 16px;
+  box-sizing: border-box;
+  width: 100%;
+}
+#pending-evidence-note {
+  font-size: 16px;
+}
+.pending-fields input:disabled,
+.pending-fields textarea:disabled {
+  opacity: 0.7;
+  background: #f4f1f5;
+}
+
+#announcement-list {
+  display: grid;
+  gap: 14px;
+}
+.announcement-admin-card {
+  padding: 20px;
+  background: #fff;
+  border: 1px solid var(--line, #e8dfe8);
+  border-radius: 18px;
+  min-width: 0;
+}
+.announcement-admin-card h2 {
+  font-size: 17px;
+  margin: 12px 0 8px;
+  overflow-wrap: anywhere;
+}
+.announcement-admin-card > p {
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #7b7181;
+}
+.announcement-admin-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.announcement-admin-meta time {
+  color: #9c90a2;
+}
+.announcement-kind,
+.announcement-state {
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+.announcement-kind.notice {
+  background: #fceaf2;
+  color: #a56f88;
+}
+.announcement-kind.update {
+  background: #e7f5fb;
+  color: #568aa0;
+}
+.announcement-state.published {
+  background: #e8f5ee;
+  color: #5a8971;
+}
+.announcement-state.draft {
+  background: #f0edf2;
+  color: #8f829a;
+}
+.announcement-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 20px 0;
+}
+.announcement-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+}
+.announcement-fields input,
+.announcement-fields select,
+.announcement-fields textarea {
+  box-sizing: border-box;
+  width: 100%;
+  font-size: 16px;
+}
+.announcement-fields .announcement-public {
+  flex-direction: row;
+  align-items: center;
+}
+.announcement-public input {
+  width: 18px;
+  height: 18px;
+}
+#announcement-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: 90dvh;
+  overflow: auto;
+}
+@media (max-width: 600px) {
+  .announcement-admin-card {
+    padding: 16px;
+  }
+  #admin-announcements .section-heading {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+}
+
+.announcement-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 18px 0;
+}
+.announcement-tabs button {
+  font-size: 13px;
+  padding: 9px 17px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #89748a;
+}
+.announcement-tabs button[aria-pressed="true"] {
+  background: #f9eaf2;
+  color: #ae6385;
+  border-color: #e6bfd2;
+}
+.important-tag {
+  display: inline-block;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: #ffebe6;
+  color: #b97968;
+  font-size: 11px;
+  font-weight: 600;
+}
+dialog button[aria-label$="閉じる"]:is(:focus, :focus-visible, :hover) {
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+dialog button[aria-label$="閉じる"]:active {
+  background: #f8edf4 !important;
+  color: #ac6e91;
+}
+
+/* 所持数はカード／バースの2行に集約。幅が不足する場合は表を横スクロール */
+.ownership-detail.ownership-compact {
+  min-width: 390px;
+  line-height: 1.45;
+}
+.ownership-compact > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px 10px;
+  white-space: nowrap;
+}
+.ownership-compact > div + div {
+  margin-top: 4px;
+}
+.ownership-compact strong {
+  display: inline;
+  flex: 0 0 78px;
+  font-size: 10px;
+}
+.ownership-compact span {
+  font-size: 10px;
+  color: #82758c;
+}
+.inactive-days {
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* アカウントの利用状態 */
+#admin-users .account-status-cell {
+  width: 30px;
+  min-width: 30px;
+  text-align: center;
+  vertical-align: middle;
+}
+.account-status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e5b72e;
+}
+.account-status-dot.is-online {
+  background: #32a568;
+}
+.account-status-dot.is-offline {
+  background: #df5b5b;
+}
+.account-status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 12px;
+}
+.account-status-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+#admin-users .user-state-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+#admin-users [data-user-state] {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 16px;
+  border: 1px solid #e7dfec;
+  border-radius: 14px;
+  background: #fff;
+  color: #766a80;
+  font-size: 12px;
+}
+#admin-users [data-user-state] b {
+  font-size: 21px;
+  line-height: 1.2;
+  font-weight: 650;
+  color: #75608d;
+}
+#admin-users [data-user-state][aria-pressed="true"] {
+  background: #f5effc;
+  border-color: #baabd1;
+  box-shadow: 0 3px 12px #725b9b08;
+}
+#admin-users [data-user-state="online"] b {
+  color: #35936b;
+}
+#admin-users [data-user-state="offline"] b {
+  color: #c5727f;
+}
+#admin-users [data-user-state="unknown"] b {
+  color: #bc9847;
+}
+.user-filter-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin: 0 0 12px;
+}
+.user-filter-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  color: #81758c;
+}
+.user-filter-toolbar label:first-child {
+  flex: 1;
+  min-width: 180px;
+}
+.user-filter-toolbar input,
+.user-filter-toolbar select {
+  font-size: 16px;
+  min-height: 40px;
+  border-radius: 10px;
+}
+#user-filter-reset {
+  font-size: 12px;
+  min-height: 40px;
+  border-radius: 10px;
+  color: #8c73a6;
+}
+.user-state-help {
+  border: 1px solid #ebe4f0;
+  background: #fcfaff;
+  padding: 10px 13px;
+  border-radius: 12px;
+  margin-bottom: 14px;
+  font-size: 11px;
+  color: #84768f;
+}
+.user-state-help summary {
+  cursor: pointer;
+  color: #8b72a5;
+}
+.user-state-help p {
+  margin: 8px 0 0;
+  line-height: 1.8;
+}
+.user-table-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 15px;
+  margin: 12px 0;
+  font-size: 11px;
+  color: #8c8098;
+}
+#user-result-count {
+  font-size: 13px;
+  color: #756384;
+}
+.user-table-meta label {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.user-table-meta input {
+  width: 14px;
+  min-height: 14px;
+  margin: 0;
+  accent-color: #9f83bc;
+}
+#admin-users .table-wrap {
+  max-height: 68dvh;
+  overflow: auto;
+  border: 1px solid #e9e2ee;
+  border-radius: 16px;
+  background: #fff;
+  overscroll-behavior: contain;
+}
+#admin-users table {
+  width: 100%;
+  min-width: 940px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+#admin-users thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8f5fc;
+  color: #8a789a;
+  font-weight: 600;
+  font-size: 11px;
+  white-space: nowrap;
+  padding: 13px 12px;
+  border-bottom: 1px solid #e9e2ee;
+}
+#admin-users tbody td {
+  padding: 11px 12px;
+  border-bottom: 1px solid #f0ebf4;
+  vertical-align: middle;
+  font-size: 12px;
+}
+#admin-users tbody tr:last-child td {
+  border-bottom: 0;
+}
+#admin-users tbody tr:hover td {
+  background: #fcfaff;
+}
+#admin-users .account-status-cell {
+  width: auto;
+  min-width: 100px;
+  text-align: left;
+}
+.account-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 10px;
+  padding: 5px 8px;
+  border-radius: 20px;
+  background: #fff8e8;
+  color: #a18236;
+}
+.account-state.is-online {
+  background: #edf8f1;
+  color: #328461;
+}
+.account-state.is-offline {
+  background: #fff1f3;
+  color: #be6d7a;
+}
+.account-state .account-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+}
+.user-identity strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #62526f;
+  overflow-wrap: anywhere;
+}
+.user-identity .album-id-cell {
+  display: block;
+  margin-top: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: #9b8ca5;
+  letter-spacing: 0.04em;
+}
+.user-date {
+  white-space: nowrap;
+}
+.user-date span,
+.user-date small {
+  display: block;
+}
+.user-date small {
+  color: #a698b0;
+  font-size: 10px;
+  margin-top: 3px;
+}
+#admin-users .inactive-days {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: #8b7b97;
+}
+#admin-users .ownership-detail {
+  min-width: 230px;
+}
+.user-owned-summary {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 4px 10px !important;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.user-owned-summary strong {
+  font-weight: 600;
+}
+.user-owned-summary > span {
+  color: #9b8aa8;
+}
+#admin-users .ownership-detail details {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #9782a7;
+}
+.ownership-detail summary {
+  cursor: pointer;
+  width: fit-content;
+}
+#admin-users .user-owned-breakdown {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-top: 9px;
+  padding: 9px 11px;
+  border: 1px solid #ece3f2;
+  border-radius: 10px;
+  background: #fcfaff;
+}
+.user-owned-breakdown > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 10px;
+}
+.user-owned-breakdown b {
+  font-weight: 500;
+  color: #796788;
+}
+#admin-users .compact-button {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+#admin-users .user-empty {
+  text-align: center;
+  padding: 30px;
+  color: #a091ab;
+}
+@media (max-width: 760px) {
+  #admin-users .user-state-filters {
+    gap: 6px;
+  }
+  #admin-users [data-user-state] {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 10px;
+    font-size: 10px;
+    gap: 5px;
+  }
+  #admin-users [data-user-state] b {
+    font-size: 19px;
+  }
+  .user-filter-toolbar {
+    gap: 9px;
+  }
+  .user-filter-toolbar label:first-child {
+    flex-basis: 100%;
+  }
+  .user-table-meta label {
+    margin-left: 0;
+  }
+  #admin-users .table-wrap {
+    max-height: 65dvh;
+  }
+}
+
+/* 登録者ごとの共有状況 */
+.user-share-cell {
+  min-width: 148px;
+}
+.user-share-state {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 3px 7px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.user-share-state.is-public {
+  color: #357964;
+  background: #e9f6ef;
+}
+.user-share-state.is-private {
+  color: #9a7950;
+  background: #faf2e5;
+}
+.user-share-state.is-none {
+  color: #8b8790;
+  background: #f3f1f4;
+}
+.user-share-link {
+  display: block;
+  width: fit-content;
+  margin-top: 6px;
+  color: #8364a9;
+  text-decoration: none;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.user-share-link:hover {
+  color: #61418b;
+  text-decoration: underline;
+}
+.user-share-link:focus-visible {
+  outline: 2px solid #bfa9d9;
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.user-share-note {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+  color: #8b8790;
+}
+.user-filter-toolbar {
+  flex-wrap: wrap;
+}
+
+/* 運営管理画面：一覧の密度と操作の階層を統一 */
+:root {
+  --accent: #8062a7;
+  --line: #e8e2ef;
+  --soft: #f6f2fb;
+}
+body {
+  background: linear-gradient(135deg, #faf7fc 0%, #f4f8fc 100%);
+}
+body:has(#admin-app:not([hidden])) > header {
+  overflow-y: auto;
+  background: #ffffffeb;
+}
+#admin-nav {
+  gap: 5px;
+}
+#admin-nav button {
+  border-radius: 13px;
+  transition:
+    background 140ms,
+    color 140ms;
+}
+#admin-nav button:not(.active):hover {
+  background: var(--soft);
+  color: var(--accent);
+}
+.section-heading h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.section-heading {
+  gap: 14px;
+  margin-bottom: 20px;
+}
+button {
+  font-size: 13px;
+  box-shadow: none;
+}
+button:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+input:not([type="checkbox"]),
+select,
+textarea {
+  font-size: 16px;
+}
+.table-wrap {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: white;
+}
+thead th {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b7a9a;
+  background: #f7f4fa;
+}
+tbody td {
+  font-size: 12px;
+}
+#admin-app > section {
+  min-width: 0;
+}
+.operations-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.operations-grid .usage-panel {
+  margin: 0;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #fff;
+}
+.operations-grid h2 {
+  font-size: 18px;
+}
+.usage-panel {
+  border-radius: 18px;
+  box-shadow: 0 4px 20px #725a9005;
+}
+.usage-grid {
+  gap: 12px;
+}
+.usage-grid article {
+  border-radius: 16px;
+}
+.verse-admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 15px;
+}
+.verse-admin-filters label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: #80728d;
+}
+.verse-admin-filters label:nth-child(2) {
+  flex: 1;
+  min-width: 170px;
+}
+.verse-admin-card {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  align-items: center;
+}
+.verse-admin-card h2 {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 7px 0;
+  overflow-wrap: anywhere;
+}
+.verse-admin-card small {
+  color: #94839f;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.verse-admin-picture {
+  height: 134px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #faf8fc;
+}
+.verse-admin-picture img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.verse-admin-picture span {
+  font-size: 10px;
+  color: #a08eaa;
+  text-align: center;
+}
+.verse-admin-card button {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--accent);
+}
+#verse-editor-dialog {
+  width: min(850px, calc(100% - 32px));
+  max-height: 90dvh;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+}
+#verse-editor-title {
+  font-size: 19px;
+  overflow-wrap: anywhere;
+}
+#verse-editor-fields fieldset {
+  padding: 18px;
+  margin: 18px 0;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  min-width: 0;
+}
+#verse-editor-fields legend {
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.verse-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+#verse-editor-fields label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  font-size: 12px;
+}
+#verse-editor-fields input,
+#verse-editor-fields textarea {
+  width: 100%;
+  min-width: 0;
+}
+.verse-edit-coordinate > label {
+  margin-top: 14px;
+}
+.verse-part-editor {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.verse-part-editor > img {
+  width: 85px;
+  max-height: 125px;
+  object-fit: contain;
+}
+.verse-part-editor > div {
+  flex: 1;
+  min-width: 0;
+}
+.compact-history {
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #fff;
+  margin: 8px 0;
+  padding: 12px 15px;
+}
+.compact-history summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  list-style: none;
+  cursor: pointer;
+}
+.compact-history summary::-webkit-details-marker {
+  display: none;
+}
+.compact-history strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.compact-history small {
+  color: #96879f;
+  font-size: 10px;
+}
+.history-action {
+  background: #f0eafa;
+  color: #8a65a7;
+  padding: 4px 7px;
+  border-radius: 7px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.compact-history p {
+  margin: 10px 0 0;
+  font-size: 11px;
+}
+.contact-message {
+  padding: 15px 18px;
+  margin: 10px 0;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: #fff;
+}
+.contact-message summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.contact-message summary::-webkit-details-marker {
+  display: none;
+}
+.contact-message summary h2 {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+.contact-message summary time {
+  color: #94849b;
+  font-size: 10px;
+}
+.contact-message .status-label {
+  position: static;
+  font-size: 10px;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 7px;
+}
+.contact-message.status-new {
+  border-left: 4px solid #e99bb4;
+}
+.contact-message.status-working {
+  border-left: 4px solid #e8c272;
+}
+.contact-message.status-done {
+  border-left: 4px solid #a3cbbd;
+}
+.contact-message.status-new .status-label {
+  color: #b46a84;
+  background: #fcecf2;
+}
+.contact-message.status-working .status-label {
+  color: #ad853b;
+  background: #fff6df;
+}
+.contact-message.status-done .status-label {
+  color: #578d7d;
+  background: #eaf5ef;
+}
+.contact-message .message-body {
+  font-size: 13px;
+  line-height: 1.8;
+  padding: 14px;
+  border-radius: 12px;
+  background: #faf8fc;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.contact-message .contact-meta,
+.contact-message .contact-id {
+  font-size: 11px;
+  line-height: 1.7;
+}
+.contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.danger-button {
+  color: white;
+  background: #c56a80;
+  border-color: #c56a80;
+}
+.admin-warning {
+  position: fixed;
+  z-index: 10000;
+  right: 20px;
+  bottom: 20px;
+  max-width: calc(100vw - 40px);
+  padding: 13px 20px;
+  border: 1px solid #edcad4;
+  border-radius: 14px;
+  background: #fff0f3;
+  color: #aa536e;
+  box-shadow: 0 6px 25px #75425715;
+  font-size: 13px;
+}
+.admin-brand-mark > img {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+}
+@media (max-width: 1000px) {
+  .operations-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .section-heading h1 {
+    font-size: 21px;
+  }
+  .verse-edit-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .verse-part-editor {
+    gap: 10px;
+  }
+  .verse-part-editor > img {
+    width: 60px;
+  }
+  .compact-history summary,
+  .contact-message summary {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .compact-history small,
+  .contact-message summary time {
+    margin-left: auto;
+  }
+  .contact-message {
+    padding: 13px;
+  }
+  .operations-grid .usage-panel {
+    padding: 18px;
+  }
+}
+
+/* Match the coordinate workspace to the card workspace. */
+.verse-search-row {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 230px) auto;
+  align-items: center;
+  margin-bottom: 16px;
+}
+#verse-admin-status {
+  font-size: 12px;
+  color: #9a879f;
+  margin: 16px 0;
+}
+.verse-catalog-card img {
+  height: 185px;
+}
+.verse-catalog-card button {
+  width: 100%;
+}
+.verse-editor-preview {
+  align-items: start;
+}
+.verse-editor-preview > img {
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+}
+.verse-editor-preview .verse-edit-grid {
+  grid-template-columns: 1fr;
+}
+@media (max-width: 650px) {
+  .verse-search-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .verse-search-row input {
+    grid-column: 1/-1;
+  }
+  .verse-editor-preview {
+    grid-template-columns: 1fr;
+  }
+  .verse-editor-preview > img {
+    max-height: 230px;
+  }
+}
