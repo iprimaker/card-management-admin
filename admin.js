@@ -52,6 +52,7 @@
     } catch {
       persistSession = false;
     }
+    let forceAdminLogin = () => {};
     async function boundedFetch(input, init = {}) {
       const controller = new AbortController();
       const abort = () => controller.abort();
@@ -59,11 +60,31 @@
       else init.signal?.addEventListener("abort", abort, { once: true });
       const timer = setTimeout(abort, 20000);
       try {
-        return await fetch(input, { ...init, signal: controller.signal });
+        const response = await fetch(input, {
+          ...init,
+          signal: controller.signal,
+        });
+        if (response.status === 401 || response.status === 403)
+          queueMicrotask(() => forceAdminLogin());
+        else if (!response.ok) {
+          try {
+            const detail = await response.clone().json();
+            if (
+              detail.code === "42501" ||
+              /管理者権限が必要|ログインが必要|認証が必要/.test(
+                detail.message || "",
+              )
+            )
+              queueMicrotask(() => forceAdminLogin());
+          } catch {}
+        }
+        return response;
       } catch (error) {
         try {
           lastConnectionFailure = new URL(
-            typeof input === "string" || input instanceof URL ? input : input.url,
+            typeof input === "string" || input instanceof URL
+              ? input
+              : input.url,
           ).pathname;
         } catch {
           lastConnectionFailure = "不明";
@@ -76,14 +97,20 @@
     }
     if (config.publicSiteUrl) $("public-site-link").href = config.publicSiteUrl;
     else $("public-site-link").hidden = true;
-    const db = window.supabase.createClient(config.supabaseUrl, config.supabaseKey, {
-      auth: {
-        storageKey: "card-album-admin-auth:" + new URL(config.supabaseUrl).hostname.split(".")[0],
-        detectSessionInUrl: false,
-        persistSession,
+    const db = window.supabase.createClient(
+      config.supabaseUrl,
+      config.supabaseKey,
+      {
+        auth: {
+          storageKey:
+            "card-album-admin-auth:" +
+            new URL(config.supabaseUrl).hostname.split(".")[0],
+          detectSessionInUrl: false,
+          persistSession,
+        },
+        global: { fetch: boundedFetch },
       },
-      global: { fetch: boundedFetch },
-    });
+    );
     let session = null,
       authorized = false,
       generation = 0,
@@ -116,7 +143,13 @@
     let baseCards = [],
       overrides = new Map();
     const pageSize = 24;
-    const arrayFields = new Set(["series", "type", "category", "brand", "songs"]);
+    const arrayFields = new Set([
+      "series",
+      "type",
+      "category",
+      "brand",
+      "songs",
+    ]);
     const labels = {
       name: "カード名",
       code: "カードコード",
@@ -133,7 +166,9 @@
       back: "裏面画像URL",
     };
     const timestamp = (value) =>
-      value ? new Date(value).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }) : "—";
+      value
+        ? new Date(value).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
+        : "—";
     const message = (text) => {
       $("admin-message").textContent = text;
     };
@@ -169,7 +204,8 @@
       ])
         $(id).replaceChildren();
       $("usage-detail-period").textContent = "";
-      $("usage-details-message").textContent = "必要なときだけ詳細を取得します。";
+      $("usage-details-message").textContent =
+        "必要なときだけ詳細を取得します。";
 
       deletingUser = null;
       $("contact-alert").hidden = true;
@@ -198,6 +234,16 @@
       $("announcement-save-message").textContent = "";
       overrides.clear();
       editing = null;
+      verseRequest++;
+      verseHistoryRequest++;
+      verseRows.clear();
+      contactRows.clear();
+      verseEditing = contactDeleting = null;
+      $("verse-admin-list").replaceChildren();
+      $("verse-history-list").replaceChildren();
+      $("verse-editor-fields").replaceChildren();
+      for (const id of ["verse-editor-dialog", "contact-delete-dialog"])
+        if ($(id).open) $(id).close();
       cardPage = userPage = contactPage = 1;
       $("admin-account").textContent = "";
       message("");
@@ -381,13 +427,17 @@
       const current = ++generation;
       session = next;
       hidePrivateData();
-      if (!session) return;
+      if (!session) {
+        requireAdminAction();
+        return;
+      }
       $("admin-auth-message").textContent = "管理者権限を確認中…";
       let result;
       try {
         result = await db.rpc("card_admin_mfa_identity");
       } catch (error) {
-        if (current === generation) $("admin-auth-message").textContent = errorText(error);
+        if (current === generation)
+          $("admin-auth-message").textContent = errorText(error);
         return;
       }
       const { data, error } = result;
@@ -468,12 +518,16 @@
           !authorized
         )
           return;
-        baseCards = result.cards.filter((card) => card && typeof card.id === "string");
+        baseCards = result.cards.filter(
+          (card) => card && typeof card.id === "string",
+        );
         overrides = new Map(result.overrides.map((r) => [r.card_id, r.patch]));
         renderCards();
         await refreshSyncProgress();
         message(
-          baseCards.length ? "" : "カードが未登録です。移行またはカード追加SQLを実行してください。",
+          baseCards.length
+            ? ""
+            : "カードが未登録です。移行またはカード追加SQLを実行してください。",
         );
       } catch (e) {
         if (current === generation && request === cardsRequest && authorized)
@@ -484,7 +538,8 @@
       return { ...card, ...(overrides.get(card.id) || {}) };
     }
     function missingCardText(value) {
-      const text = typeof value === "string" ? value.normalize("NFKC").trim() : "";
+      const text =
+        typeof value === "string" ? value.normalize("NFKC").trim() : "";
       return (
         !text ||
         /^(?:記載なし|未(?:取得|登録|設定|確認)|(?:カード名|キャラクター|曲名|カードコード|コード|AP)(?:未(?:取得|登録|設定|確認)|なし))$/.test(
@@ -496,36 +551,51 @@
       const fields = [];
       if (missingCardText(card.name)) fields.push(["name", "カード名"]);
       if (missingCardText(card.code)) fields.push(["code", "カードコード"]);
-      if (missingCardText(card.character)) fields.push(["character", "キャラクター"]);
+      if (missingCardText(card.character))
+        fields.push(["character", "キャラクター"]);
       if (missingCardText(card.rarity)) fields.push(["rarity", "レアリティ"]);
       if (missingCardText(card.front)) fields.push(["front", "表面画像"]);
       if (
         card.game === "aipri" &&
-        (!Array.isArray(card.songs) || !card.songs.some((song) => !missingCardText(song)))
+        (!Array.isArray(card.songs) ||
+          !card.songs.some((song) => !missingCardText(song)))
       )
         fields.push(["songs", "曲名"]);
       if (
         card.game === "aikatsu" &&
-        !(typeof card.ap === "number" && Number.isInteger(card.ap) && card.ap >= 0)
+        !(
+          typeof card.ap === "number" &&
+          Number.isInteger(card.ap) &&
+          card.ap >= 0
+        )
       )
         fields.push(["ap", "AP"]);
-      if (includeBack && missingCardText(card.back)) fields.push(["back", "裏面画像"]);
+      if (includeBack && missingCardText(card.back))
+        fields.push(["back", "裏面画像"]);
       return fields;
     }
     function matchesMissingCardFilter(card, mode) {
       if (!mode || mode === "all") return true;
       const missing = missingCardFields(card, mode === "back");
-      return mode === "missing" ? missing.length > 0 : missing.some(([key]) => key === mode);
+      return mode === "missing"
+        ? missing.length > 0
+        : missing.some(([key]) => key === mode);
     }
     function missingCardBadge(card) {
-      const missing = missingCardFields(card, $("admin-missing")?.value === "back");
+      const missing = missingCardFields(
+        card,
+        $("admin-missing")?.value === "back",
+      );
       return missing.length
         ? `<span class="missing-fields-badge">未登録：${esc(missing.map(([, label]) => label).join("・"))}</span>`
         : "";
     }
 
     function cardResults() {
-      const query = $("admin-query").value.normalize("NFKC").toLowerCase().trim(),
+      const query = $("admin-query")
+          .value.normalize("NFKC")
+          .toLowerCase()
+          .trim(),
         game = $("admin-game").value,
         missingMode = $("admin-missing").value;
       const state = $("admin-state").value;
@@ -550,7 +620,10 @@
     }
     function renderCards() {
       const cards = cardResults();
-      cardPage = Math.min(cardPage, Math.max(1, Math.ceil(cards.length / pageSize)));
+      cardPage = Math.min(
+        cardPage,
+        Math.max(1, Math.ceil(cards.length / pageSize)),
+      );
       $("admin-count").textContent = `${cards.length}件`;
       $("admin-card-list").innerHTML = cards
         .slice((cardPage - 1) * pageSize, cardPage * pageSize)
@@ -588,14 +661,26 @@
               "front",
               "back",
             ]
-          : ["name", "code", "rarity", "character", "family", "series", "songs", "front", "back"];
+          : [
+              "name",
+              "code",
+              "rarity",
+              "character",
+              "family",
+              "series",
+              "songs",
+              "front",
+              "back",
+            ];
       $("edit-fields").innerHTML = keys
         .map((key) => {
           let value = card[key] ?? "";
-          if (arrayFields.has(key)) value = (Array.isArray(value) ? value : [value]).join("\n");
+          if (arrayFields.has(key))
+            value = (Array.isArray(value) ? value : [value]).join("\n");
           if (key === "variant" && !value) value = "通常";
           if (key === "family" || key === "variant") {
-            const choices = key === "family" ? ["おねがい", "ひみつ"] : ["通常", "パラレル"];
+            const choices =
+              key === "family" ? ["おねがい", "ひみつ"] : ["通常", "パラレル"];
             return `<label>${labels[key]}<select data-field="${key}">${choices.map((v) => `<option ${value === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>`;
           }
           return `<label>${labels[key]}${arrayFields.has(key) ? `<textarea data-field="${key}" placeholder="1行に1項目">${esc(value)}</textarea>` : `<input data-field="${key}" value="${esc(value)}" ${["name", "code"].includes(key) ? "required" : ""} maxlength="2000">`}</label>`;
@@ -627,7 +712,8 @@
           const original = arrayFields.has(key)
             ? editing[key] || []
             : editing[key] || (key === "variant" ? "通常" : "");
-          if (JSON.stringify(value) === JSON.stringify(original)) delete patch[key];
+          if (JSON.stringify(value) === JSON.stringify(original))
+            delete patch[key];
           else patch[key] = value;
         });
         const result = Object.keys(patch).length
@@ -638,10 +724,14 @@
         if (result.error) throw result.error;
         if (current !== generation || !authorized) return;
         invalidateCatalog();
-        Object.keys(patch).length ? overrides.set(id, patch) : overrides.delete(id);
+        Object.keys(patch).length
+          ? overrides.set(id, patch)
+          : overrides.delete(id);
         $("edit-dialog").close();
         renderCards();
-        message("カード情報を保存しました。一般サイトには次回更新時に反映されます。");
+        message(
+          "カード情報を保存しました。一般サイトには次回更新時に反映されます。",
+        );
       } catch (e) {
         if (current === generation)
           $("edit-message").textContent = "保存できませんでした。" + e.message;
@@ -656,7 +746,9 @@
       if (
         !session ||
         (!logout &&
-          (document.hidden || adminPresenceLoggingOut || Date.now() - adminPresenceSent < 40000))
+          (document.hidden ||
+            adminPresenceLoggingOut ||
+            Date.now() - adminPresenceSent < 40000))
       )
         return Promise.resolve();
       const uid = session.user.id;
@@ -672,7 +764,10 @@
           const controller = new AbortController(),
             timer = setTimeout(() => controller.abort(), 4000);
           try {
-            let request = db.rpc("card_account_presence_touch", { p_logout: logout, p_all: false });
+            let request = db.rpc("card_account_presence_touch", {
+              p_logout: logout,
+              p_all: false,
+            });
             if (typeof request.abortSignal === "function")
               request = request.abortSignal(controller.signal);
             const r = await request;
@@ -697,7 +792,10 @@
         timer = setTimeout(() => controller.abort(), 3000);
       try {
         await boundedFetch(
-          new URL("/rest/v1/rpc/card_account_presence_touch", config.supabaseUrl).href,
+          new URL(
+            "/rest/v1/rpc/card_account_presence_touch",
+            config.supabaseUrl,
+          ).href,
           {
             method: "POST",
             headers: {
@@ -723,10 +821,18 @@
       usersRefreshBusy = false,
       userSearchTimer,
       usersCheckedAt = null;
-    const stateLabels = { online: "ログイン中", offline: "ログアウト中", unknown: "状態不明" };
+    const stateLabels = {
+      online: "ログイン中",
+      offline: "ログアウト中",
+      unknown: "状態不明",
+    };
     function accountStatusDot(status) {
       const state = status in stateLabels ? status : "unknown";
-      return '<span class="account-status-dot is-' + state + '" aria-hidden="true"></span>';
+      return (
+        '<span class="account-status-dot is-' +
+        state +
+        '" aria-hidden="true"></span>'
+      );
     }
     function userArgs(include = true) {
       return {
@@ -740,7 +846,14 @@
       };
     }
     function userKey() {
-      return [generation, userPage, userState, userQuery, userSort, userShare].join("|");
+      return [
+        generation,
+        userPage,
+        userState,
+        userQuery,
+        userSort,
+        userShare,
+      ].join("|");
     }
     function dateCell(value) {
       if (!value || !Number.isFinite(Date.parse(value))) return "—";
@@ -760,30 +873,68 @@
       );
     }
     function userShareCell(u) {
-      if (!u.has_share_link) return '<span class="user-share-state is-none">未発行</span>';
+      if (!u.has_share_link)
+        return '<span class="user-share-state is-none">未発行</span>';
       const scopes = Array.isArray(u.share_scopes) ? u.share_scopes : [];
-      const labels = {aikatsu:"アイカツ",onegai:"おねがい",himitsu:"ひみつ","verse-onegai":"おねがいバース","verse-himitsu":"ひみつバース"};
-      const status = scopes.length ? "公開 " + scopes.length + "種類" : "全て非公開";
-      const badge = '<span class="user-share-state ' + (scopes.length ? 'is-public' : 'is-private') + '" title="' + esc(scopes.map(s => labels[s] || s).join("・")) + '">発行済み · ' + status + '</span>';
-      if (!/^[0-9a-f]{64}$/.test(u.share_token || "")) return badge + '<small class="user-share-note">以前のURLは再表示できません</small>';
-      const url = new URL("share/", "https://iprimaker.github.io/card-management/");
+      const labels = {
+        aikatsu: "アイカツ",
+        onegai: "おねがい",
+        himitsu: "ひみつ",
+        "verse-onegai": "おねがいバース",
+        "verse-himitsu": "ひみつバース",
+      };
+      const status = scopes.length
+        ? "公開 " + scopes.length + "種類"
+        : "全て非公開";
+      const badge =
+        '<span class="user-share-state ' +
+        (scopes.length ? "is-public" : "is-private") +
+        '" title="' +
+        esc(scopes.map((s) => labels[s] || s).join("・")) +
+        '">発行済み · ' +
+        status +
+        "</span>";
+      if (!/^[0-9a-f]{64}$/.test(u.share_token || ""))
+        return (
+          badge +
+          '<small class="user-share-note">以前のURLは再表示できません</small>'
+        );
+      const url = new URL(
+        "share/",
+        "https://iprimaker.github.io/card-management/",
+      );
       url.hash = u.share_token;
-      return badge + '<a class="user-share-link" href="' + esc(url.href) + '" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" title="' + esc(url.href) + '">共有アルバムを開く ↗</a>';
+      return (
+        badge +
+        '<a class="user-share-link" href="' +
+        esc(url.href) +
+        '" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" title="' +
+        esc(url.href) +
+        '">共有アルバムを開く ↗</a>'
+      );
     }
     function paintUsers() {
       const opened = new Set(
-        [...$("user-list").querySelectorAll("details[open]")].map((d) => d.dataset.userDetail),
+        [...$("user-list").querySelectorAll("details[open]")].map(
+          (d) => d.dataset.userDetail,
+        ),
       );
       $("user-list").innerHTML =
         [...userRows.values()]
           .map((u) => {
-            const state = u.presence_status in stateLabels ? u.presence_status : "unknown",
+            const state =
+                u.presence_status in stateLabels
+                  ? u.presence_status
+                  : "unknown",
               n = (k) => Number(u[k]) || 0,
-              cardTotal = ["aikatsu_count", "onegai_count", "himitsu_count", "other_count"].reduce(
-                (a, k) => a + n(k),
-                0,
-              ),
-              verseTotal = n("verse_onegai_coordinates") + n("verse_himitsu_coordinates");
+              cardTotal = [
+                "aikatsu_count",
+                "onegai_count",
+                "himitsu_count",
+                "other_count",
+              ].reduce((a, k) => a + n(k), 0),
+              verseTotal =
+                n("verse_onegai_coordinates") + n("verse_himitsu_coordinates");
             return `<tr><td class="account-status-cell"><span class="account-state is-${state}" title="${esc("直近の画面通信：" + timestamp(u.presence_seen_at) + " ／ 明示的ログアウト：" + timestamp(u.presence_logout_at))}">${accountStatusDot(state)}${stateLabels[state]}</span></td><td class="user-identity"><strong>${esc(u.nickname || "未設定")}</strong><span class="album-id-cell">${esc(u.album_id || "未発行")}</span></td><td class="user-date">${dateCell(u.created_at)}</td><td class="user-date">${dateCell(u.last_sign_in_at)}</td><td class="inactive-days">${u.inactive_days != null && Number.isFinite(Number(u.inactive_days)) ? Math.max(0, Number(u.inactive_days)) + "日" : "—"}</td><td class="ownership-detail ownership-compact"><div class="user-owned-summary"><strong>カード ${cardTotal.toLocaleString()}枚</strong><span>バース ${verseTotal.toLocaleString()}コーデ</span></div><details data-user-detail="${esc(u.id)}" ${opened.has(u.id) ? "open" : ""}><summary>所持数の内訳</summary><div class="user-owned-breakdown"><span>アイカツ <b>${n("aikatsu_count")}枚</b></span><span>おねがい <b>${n("onegai_count")}枚</b></span><span>ひみつ <b>${n("himitsu_count")}枚</b></span>${n("other_count") ? "<span>その他 <b>" + n("other_count") + "枚</b></span>" : ""}<span>おねがいバース <b>${n("verse_onegai_coordinates")}コーデ ／ ${n("verse_onegai_parts")}枚（パーツ）</b></span><span>ひみつバース <b>${n("verse_himitsu_coordinates")}コーデ ／ ${n("verse_himitsu_parts")}枚（パーツ）</b></span></div></details></td><td class="user-share-cell">${userShareCell(u)}</td><td><button class="danger compact-button" data-delete-user="${esc(u.id)}" ${u.id === session?.user.id ? "disabled" : ""}>強制削除</button></td></tr>`;
           })
           .join("") ||
@@ -799,33 +950,44 @@
         : "0人";
       $("user-prev").disabled = userPage <= 1;
       $("user-next").disabled = userPage * 100 >= usersTotal;
-      $("user-result-count").textContent = "該当 " + usersTotal.toLocaleString() + "人";
+      $("user-result-count").textContent =
+        "該当 " + usersTotal.toLocaleString() + "人";
     }
     function applyUserMeta(data) {
       usersTotal = Number(data.total) || 0;
       for (const button of document.querySelectorAll("[data-user-state]")) {
-        button.setAttribute("aria-pressed", String(button.dataset.userState === userState));
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.userState === userState),
+        );
         button.querySelector("b").textContent = Number(
           data.counts?.[button.dataset.userState] || 0,
         ).toLocaleString();
       }
       usersCheckedAt = data.checked_at;
       $("users-checked-at").textContent =
-        ($("users-auto-refresh").checked ? "状態確認：" : "自動更新停止中・前回確認：") +
-        timestamp(usersCheckedAt);
+        ($("users-auto-refresh").checked
+          ? "状態確認："
+          : "自動更新停止中・前回確認：") + timestamp(usersCheckedAt);
     }
     function markUsersStale() {
       userRows.forEach((u) => (u.presence_status = "unknown"));
       paintUsers();
-      document.querySelectorAll("[data-user-state] b").forEach((e) => (e.textContent = "—"));
-      $("users-checked-at").textContent = "状態を再確認できません。更新してください。";
+      document
+        .querySelectorAll("[data-user-state] b")
+        .forEach((e) => (e.textContent = "—"));
+      $("users-checked-at").textContent =
+        "状態を再確認できません。更新してください。";
     }
     async function loadUsersUnsafe() {
       if (!authorized) return;
       const key = userKey(),
         request = ++usersRequest;
       message("登録者を読み込み中…");
-      const { data, error } = await db.rpc("card_admin_users_shared_filtered", userArgs());
+      const { data, error } = await db.rpc(
+        "card_admin_users_shared_filtered",
+        userArgs(),
+      );
       if (!authorized || key !== userKey() || request !== usersRequest) return;
       if (error || !Array.isArray(data?.users)) {
         markUsersStale();
@@ -855,18 +1017,28 @@
       const key = userKey(),
         request = usersRequest;
       try {
-        const { data, error } = await db.rpc("card_admin_users_shared_filtered", userArgs(false));
-        if (!authorized || key !== userKey() || request !== usersRequest) return;
+        const { data, error } = await db.rpc(
+          "card_admin_users_shared_filtered",
+          userArgs(false),
+        );
+        if (!authorized || key !== userKey() || request !== usersRequest)
+          return;
         if (error || !Array.isArray(data?.users)) throw Error();
-        if (data.users.map((u) => u.id).join("|") !== [...userRows.keys()].join("|")) {
+        if (
+          data.users.map((u) => u.id).join("|") !==
+          [...userRows.keys()].join("|")
+        ) {
           await loadUsersUnsafe();
           return;
         }
-        data.users.forEach((u) => userRows.set(u.id, { ...userRows.get(u.id), ...u }));
+        data.users.forEach((u) =>
+          userRows.set(u.id, { ...userRows.get(u.id), ...u }),
+        );
         applyUserMeta(data);
         paintUsers();
       } catch {
-        if (authorized && key === userKey() && request === usersRequest) markUsersStale();
+        if (authorized && key === userKey() && request === usersRequest)
+          markUsersStale();
       } finally {
         usersRefreshBusy = false;
       }
@@ -929,10 +1101,19 @@
         return;
       }
       $("log-list").innerHTML = (data || [])
-        .map(
-          (row) =>
-            `<article class="log-row"><strong>${esc(row.card_id)}</strong><p>${row.action === "DELETE" ? "修正を解除" : row.action === "INSERT" ? "修正を追加" : "修正を更新"} · ${esc(timestamp(row.created_at))}</p><p class="muted">変更項目：${esc([...new Set([...Object.keys(row.before_patch || {}), ...Object.keys(row.after_patch || {})])].map((k) => labels[k] || k).join("、"))}</p></article>`,
-        )
+        .map((row) => {
+          const fields = [
+            ...new Set([
+              ...Object.keys(row.before_patch || {}),
+              ...Object.keys(row.after_patch || {}),
+            ]),
+          ].filter(
+            (k) =>
+              JSON.stringify(row.before_patch?.[k]) !==
+              JSON.stringify(row.after_patch?.[k]),
+          );
+          return `<details class="compact-history"><summary><span class="history-action">${{ DELETE: "解除", INSERT: "追加", UPDATE: "更新" }[row.action] || esc(row.action)}</span><strong>${esc(row.card_id)}</strong><small>${esc(timestamp(row.created_at))}</small></summary><p class="muted">変更項目：${esc(fields.map((k) => labels[k] || k).join("、"))}</p></details>`;
+        })
         .join("");
       message("最新100件を表示しています。");
     }
@@ -946,7 +1127,8 @@
         if (
           current === generation &&
           authorized &&
-          (loader !== loadUsersUnsafe || (request === usersRequest && page === userPage))
+          (loader !== loadUsersUnsafe ||
+            (request === usersRequest && page === userPage))
         )
           message(errorText(error));
       }
@@ -977,7 +1159,12 @@
           p_limit: importPageSize,
         });
         if (error) throw error;
-        if (!authorized || current !== generation || request !== importHistoryRequest) return;
+        if (
+          !authorized ||
+          current !== generation ||
+          request !== importHistoryRequest
+        )
+          return;
         importBatches = data?.batches || [];
         const total = Number(data?.total) || 0;
         $("import-batches").innerHTML = importBatches
@@ -993,16 +1180,30 @@
           `${importPage} / ${Math.max(1, Math.ceil(total / importPageSize))}`;
         $("import-prev").disabled = importPage <= 1;
         $("import-next").disabled = importPage * importPageSize >= total;
-        $("import-message").textContent = total ? "" : "追加履歴はまだありません。";
-        if (!importBatches.some((batch) => String(batch.id) === selectedImportBatch)) {
-          selectedImportBatch = importBatches.length ? String(importBatches[0].id) : null;
+        $("import-message").textContent = total
+          ? ""
+          : "追加履歴はまだありません。";
+        if (
+          !importBatches.some(
+            (batch) => String(batch.id) === selectedImportBatch,
+          )
+        ) {
+          selectedImportBatch = importBatches.length
+            ? String(importBatches[0].id)
+            : null;
           importCardPage = 1;
         }
         if (selectedImportBatch) await loadImportCards();
         else $("import-card-list").innerHTML = "";
       } catch (error) {
-        if (authorized && current === generation && request === importHistoryRequest)
-          $("import-message").textContent = /PGRST202|42883/.test(error?.code || "")
+        if (
+          authorized &&
+          current === generation &&
+          request === importHistoryRequest
+        )
+          $("import-message").textContent = /PGRST202|42883/.test(
+            error?.code || "",
+          )
             ? "同梱の01-import-history.sqlを先に実行してください。"
             : "履歴を取得できませんでした。" + errorText(error);
       }
@@ -1019,7 +1220,10 @@
       document
         .querySelectorAll("[data-import-batch]")
         .forEach((button) =>
-          button.setAttribute("aria-pressed", String(button.dataset.importBatch === batchID)),
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.importBatch === batchID),
+          ),
         );
       document
         .querySelectorAll("[data-import-mode]")
@@ -1053,7 +1257,8 @@
             : batch
               ? timestamp(batch.recorded_at)
               : "追加履歴";
-        $("import-card-count").textContent = `${onlyNew ? "新規追加" : "変更カード"} ${total}枚`;
+        $("import-card-count").textContent =
+          `${onlyNew ? "新規追加" : "変更カード"} ${total}枚`;
         $("import-card-message").textContent =
           batch?.record_kind === "baseline"
             ? "この時点の既存カード数のみを記録しています。過去の追加日・実行履歴は復元していません。"
@@ -1080,7 +1285,11 @@
         $("import-card-prev").disabled = importCardPage <= 1;
         $("import-card-next").disabled = importCardPage * pageSize >= total;
       } catch (error) {
-        if (authorized && current === generation && request === importCardsRequest)
+        if (
+          authorized &&
+          current === generation &&
+          request === importCardsRequest
+        )
           $("import-card-message").textContent =
             "カードを取得できませんでした。" + errorText(error);
       }
@@ -1133,8 +1342,12 @@
         if (!baseCards.some((card) => card.id === id)) {
           const { result } = await getCatalog(true);
           if (!authorized || current !== generation) return;
-          baseCards = result.cards.filter((card) => card && typeof card.id === "string");
-          overrides = new Map(result.overrides.map((row) => [row.card_id, row.patch]));
+          baseCards = result.cards.filter(
+            (card) => card && typeof card.id === "string",
+          );
+          overrides = new Map(
+            result.overrides.map((row) => [row.card_id, row.patch]),
+          );
         }
         if (!baseCards.some((card) => card.id === id)) {
           $("import-card-message").textContent =
@@ -1156,7 +1369,15 @@
         .toUpperCase();
       const generic =
         !code ||
-        ["SP", "SPECIAL", "PROMO", "記載なし", "未取得", "未確認", "未登録"].includes(code);
+        [
+          "SP",
+          "SPECIAL",
+          "PROMO",
+          "記載なし",
+          "未取得",
+          "未確認",
+          "未登録",
+        ].includes(code);
       return !baseCards.some((base) => {
         const current = combined(base);
         if (current.game !== card.game) return false;
@@ -1164,7 +1385,8 @@
           current.id === card.id ||
           current.id === card._review?.target_id ||
           current.id === card._review?.formal_id ||
-          (card.front && (current.front === card.front || base.front === card.front)) ||
+          (card.front &&
+            (current.front === card.front || base.front === card.front)) ||
           (!generic &&
             String(current.code || "")
               .trim()
@@ -1215,13 +1437,16 @@
             p_limit: 500,
           });
           if (error) throw error;
-          if (!authorized || current !== generation || epoch !== pendingEpoch) return;
+          if (!authorized || current !== generation || epoch !== pendingEpoch)
+            return;
           const batch = data?.cards;
-          if (!Array.isArray(batch)) throw new Error("保留カードの取得結果を確認してください。");
+          if (!Array.isArray(batch))
+            throw new Error("保留カードの取得結果を確認してください。");
           rows.push(...batch);
           if (batch.length < 500) break;
         }
-        if (!authorized || current !== generation || epoch !== pendingEpoch) return;
+        if (!authorized || current !== generation || epoch !== pendingEpoch)
+          return;
         pendingRows = rows;
         pendingLoaded = true;
         renderCards();
@@ -1243,14 +1468,22 @@
       if (!authorized || pendingBusy) return;
       const row = id ? pendingRows.find((r) => r.id === id) : null;
       if (id && (!row || !isUnregisteredCandidate(row.card))) {
-        message("このカードは登録済みか整理済みです。登録済み一覧から確認してください。");
+        message(
+          "このカードは登録済みか整理済みです。登録済み一覧から確認してください。",
+        );
         return;
       }
-      editingPending = row || { id: null, card: { game: "aipri", family: "おねがい" }, note: "" };
+      editingPending = row || {
+        id: null,
+        card: { game: "aipri", family: "おねがい" },
+        note: "",
+      };
       const card = editingPending.card;
       const review = card._review || { kind: "new_card" };
       $("pending-reason").textContent =
-        review.reason || editingPending.note || "SQL作成時に根拠不足で追加を見送ったカード候補";
+        review.reason ||
+        editingPending.note ||
+        "SQL作成時に根拠不足で追加を見送ったカード候補";
       $("pending-target").textContent =
         review.kind === "metadata"
           ? "登録済みカードの項目補完（保留対象外）"
@@ -1258,18 +1491,24 @@
       $("pending-evidence-url").value = review.evidence_url || "";
       $("pending-evidence-note").value = review.evidence_note || "";
       $("pending-incomplete").checked = false;
-      $("pending-title").textContent = id ? "SQL保留候補を確認" : "SQL保留候補を追加";
+      $("pending-title").textContent = id
+        ? "SQL保留候補を確認"
+        : "SQL保留候補を追加";
       $("pending-game").value = card.game || "aipri";
       $("pending-family").value = card.family || "おねがい";
       $("pending-fields").innerHTML = draftFields
         .map((key) => {
-          const value = Array.isArray(card[key]) ? card[key].join("\n") : (card[key] ?? "");
+          const value = Array.isArray(card[key])
+            ? card[key].join("\n")
+            : (card[key] ?? "");
           return `<label>${esc(draftLabels[key] || key)}${arrayFields.has(key) ? '<textarea rows="2"' : `<input ${key === "ap" ? 'type="number" min="0" max="9999999" step="1"' : 'type="text"'}`} data-pending-field="${key}" maxlength="2000" ${arrayFields.has(key) ? "" : `value="${esc(value)}"`}>${arrayFields.has(key) ? esc(value) + "</textarea>" : ""}${arrayFields.has(key) ? "<small>複数ある場合は改行で分けて入力</small>" : ""}</label>`;
         })
         .join("");
       if (review.kind === "metadata") {
         $("pending-game").disabled = $("pending-family").disabled = true;
-        for (const input of $("pending-fields").querySelectorAll("[data-pending-field]"))
+        for (const input of $("pending-fields").querySelectorAll(
+          "[data-pending-field]",
+        ))
           input.disabled = !review.fields.includes(input.dataset.pendingField);
       } else $("pending-game").disabled = $("pending-family").disabled = false;
       $("pending-note").value = editingPending.note || "";
@@ -1289,10 +1528,16 @@
       };
       if (card.game === "aipri") card.family = $("pending-family").value;
       else delete card.family;
-      for (const input of $("pending-fields").querySelectorAll("[data-pending-field]")) {
+      for (const input of $("pending-fields").querySelectorAll(
+        "[data-pending-field]",
+      )) {
         const key = input.dataset.pendingField,
           value = input.value.trim();
-        if (card._review.kind === "metadata" && !card._review.fields?.includes(key)) continue;
+        if (
+          card._review.kind === "metadata" &&
+          !card._review.fields?.includes(key)
+        )
+          continue;
         if (arrayFields.has(key))
           card[key] = [
             ...new Set(
@@ -1305,9 +1550,12 @@
         else if (key === "ap") {
           if (
             value &&
-            (!Number.isInteger(Number(value)) || Number(value) < 0 || Number(value) > 9999999)
+            (!Number.isInteger(Number(value)) ||
+              Number(value) < 0 ||
+              Number(value) > 9999999)
           ) {
-            $("pending-message").textContent = "APは0〜9999999の整数で入力してください。";
+            $("pending-message").textContent =
+              "APは0〜9999999の整数で入力してください。";
             return null;
           }
           card.ap = value === "" ? null : Number(value);
@@ -1324,13 +1572,18 @@
         });
         if (error) throw error;
         if (!authorized || current !== generation) return null;
-        const row = { id: data.id, card: data.card, note: $("pending-note").value.trim() };
+        const row = {
+          id: data.id,
+          card: data.card,
+          note: $("pending-note").value.trim(),
+        };
         pendingEpoch++;
         pendingLoaded = false;
         pendingRows = [...pendingRows.filter((r) => r.id !== row.id), row];
         editingPending = row;
         renderCards();
-        $("pending-message").textContent = "保留保存しました。一般側には表示されません。";
+        $("pending-message").textContent =
+          "保留保存しました。一般側には表示されません。";
         return row.id;
       } catch (error) {
         if (authorized && current === generation)
@@ -1363,8 +1616,11 @@
       if (!id || !authorized) return;
       publishingPending = { id, allow: false };
       $("pending-confirm-name").textContent =
-        editingPending.card.name || editingPending.card.code || "名称未設定のカード";
-      $("pending-confirm-title").textContent = "確認した未登録カードを正式登録しますか？";
+        editingPending.card.name ||
+        editingPending.card.code ||
+        "名称未設定のカード";
+      $("pending-confirm-title").textContent =
+        "確認した未登録カードを正式登録しますか？";
       $("pending-confirm-message").textContent = "";
       $("pending-confirm-dialog").showModal();
     };
@@ -1426,8 +1682,15 @@
           .order("id", { ascending: false })
           .range(announcementPage * 20, announcementPage * 20 + 20);
         if (error) throw error;
-        if (!authorized || current !== generation || request !== announcementRequest) return;
-        announcementRows = new Map((data || []).slice(0, 20).map((row) => [row.id, row]));
+        if (
+          !authorized ||
+          current !== generation ||
+          request !== announcementRequest
+        )
+          return;
+        announcementRows = new Map(
+          (data || []).slice(0, 20).map((row) => [row.id, row]),
+        );
         $("announcement-list").innerHTML = [...announcementRows.values()]
           .map(
             (row) =>
@@ -1440,7 +1703,11 @@
         $("announcement-prev").disabled = announcementPage === 0;
         $("announcement-next").disabled = (data || []).length <= 20;
       } catch (error) {
-        if (authorized && current === generation && request === announcementRequest)
+        if (
+          authorized &&
+          current === generation &&
+          request === announcementRequest
+        )
           $("announcement-message").textContent = errorText(error);
       }
     }
@@ -1449,10 +1716,15 @@
       const row = id ? announcementRows.get(id) : null;
       if (id && !row) return;
       announcementEditing = row || null;
-      $("announcement-editor-title").textContent = row ? "掲載情報を編集" : "掲載情報を追加";
+      $("announcement-editor-title").textContent = row
+        ? "掲載情報を編集"
+        : "掲載情報を追加";
       $("announcement-kind").value = row?.kind || announcementKind;
       $("announcement-title").value = row?.title || "";
       $("announcement-body").value = row?.body || "";
+      $("announcement-posted-at").value = jstInput(
+        row?.posted_at || new Date(),
+      );
       $("announcement-published").checked = row?.published ?? true;
       $("announcement-important").checked = row?.important ?? false;
       $("announcement-save-message").textContent = "";
@@ -1465,7 +1737,9 @@
           announcementPage = 0;
           document
             .querySelectorAll("[data-announcement-kind]")
-            .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+            .forEach((b) =>
+              b.setAttribute("aria-pressed", String(b === button)),
+            );
           loadAnnouncements();
         }),
     );
@@ -1499,9 +1773,13 @@
         body: $("announcement-body").value.trim(),
         published: $("announcement-published").checked,
         important: $("announcement-important").checked,
+        posted_at: new Date(
+          $("announcement-posted-at").value + "+09:00",
+        ).toISOString(),
       };
       if (!values.title || !values.body) {
-        $("announcement-save-message").textContent = "タイトルと本文を入力してください。";
+        $("announcement-save-message").textContent =
+          "タイトルと本文を入力してください。";
         return;
       }
       announcementBusy = true;
@@ -1518,7 +1796,9 @@
         if (error) throw error;
         if (!authorized || current !== generation) return;
         if (!data?.length)
-          throw new Error("別の操作で更新・削除されています。一覧を更新して再度編集してください。");
+          throw new Error(
+            "別の操作で更新・削除されています。一覧を更新して再度編集してください。",
+          );
         $("announcement-dialog").close();
         await loadAnnouncements();
       } catch (error) {
@@ -1537,7 +1817,9 @@
       }
       const button = event.target.closest("[data-announcement-delete]");
       if (!button || announcementBusy) return;
-      announcementDeleting = announcementRows.get(button.dataset.announcementDelete);
+      announcementDeleting = announcementRows.get(
+        button.dataset.announcementDelete,
+      );
       if (!announcementDeleting) return;
       $("announcement-delete-name").textContent = announcementDeleting.title;
       $("announcement-delete-message").textContent = "";
@@ -1562,7 +1844,9 @@
         if (error) throw error;
         if (!authorized || current !== generation) return;
         if (!data?.length)
-          throw new Error("別の操作で更新・削除されています。一覧を更新してください。");
+          throw new Error(
+            "別の操作で更新・削除されています。一覧を更新してください。",
+          );
         $("announcement-delete-dialog").close();
         if (announcementRows.size === 1 && announcementPage) announcementPage--;
         await loadAnnouncements();
@@ -1576,8 +1860,18 @@
     };
 
     function showPage(page) {
-      if (!authorized) return;
-      for (const id of ["cards", "users", "imports", "logs", "contacts", "usage", "announcements"])
+      if (!requireAdminAction()) return;
+      for (const id of [
+        "cards",
+        "users",
+        "imports",
+        "logs",
+        "contacts",
+        "usage",
+        "operations",
+        "verse",
+        "announcements",
+      ])
         $("admin-" + id).hidden = id !== page;
       document
         .querySelectorAll("[data-page]")
@@ -1594,7 +1888,8 @@
       if (page === "users") loadUsers();
       if (page === "logs") loadLogs();
       if (page === "contacts") loadContacts();
-      if (page === "usage") loadUsage();
+      if (page === "usage" || page === "operations") loadUsage();
+      if (page === "verse") loadVerseAdmin();
     }
     $("connection-test").onclick = async () => {
       const button = $("connection-test"),
@@ -1607,7 +1902,9 @@
         "直前の通信失敗：" + (lastConnectionFailure || "記録なし"),
       ];
       if (location.protocol === "file:")
-        lines.push("ファイルを直接開いています。HTTP/HTTPSの公開URLで開いてください。");
+        lines.push(
+          "ファイルを直接開いています。HTTP/HTTPSの公開URLで開いてください。",
+        );
       report.textContent = lines.join("\n") + "\n接続確認中…";
       try {
         const checks = await Promise.all(
@@ -1623,14 +1920,16 @@
                 signal: controller.signal,
                 cache: "no-store",
               });
-              const jsonType = (response.headers.get("content-type") || "").includes(
-                "application/json",
-              );
+              const jsonType = (
+                response.headers.get("content-type") || ""
+              ).includes("application/json");
               return (
                 label +
                 "：HTTP " +
                 response.status +
-                (response.ok && jsonType ? "（接続成功）" : "（応答を確認してください）")
+                (response.ok && jsonType
+                  ? "（接続成功）"
+                  : "（応答を確認してください）")
               );
             } catch (error) {
               return (
@@ -1751,7 +2050,10 @@
         id = editing.id;
       $("confirm-remove").disabled = true;
       try {
-        const { error } = await db.from("card_catalog_overrides").delete().eq("card_id", id);
+        const { error } = await db
+          .from("card_catalog_overrides")
+          .delete()
+          .eq("card_id", id);
         if (error) throw error;
         if (current !== generation || !authorized) return;
         invalidateCatalog();
@@ -1774,6 +2076,7 @@
       .forEach((b) => (b.onclick = () => showPage(b.dataset.page)));
     db.auth.onAuthStateChange((event, next) => {
       if (event === "SIGNED_OUT") {
+        warnAdminLogin();
         generation++;
         session = null;
         hidePrivateData();
@@ -1796,7 +2099,11 @@
 
     async function contactRequest(
       action,
-      { body, page = contactPage, status = $("contact-status-filter").value } = {},
+      {
+        body,
+        page = contactPage,
+        status = $("contact-status-filter").value,
+      } = {},
     ) {
       if (!authorized || !session) throw Error("ログインし直してください。");
       let name,
@@ -1839,11 +2146,13 @@
           deletion: "削除申請",
           other: "その他",
         };
-        if (!Array.isArray(messages)) throw Error("お問い合わせ関数の応答形式を確認してください。");
+        if (!Array.isArray(messages))
+          throw Error("お問い合わせ関数の応答形式を確認してください。");
+        contactRows = new Map(messages.map((row) => [row.id, row]));
         $("contact-list").innerHTML = messages
           .map(
             (row) =>
-              `<article class="contact-message status-${["new", "working", "done"].includes(row.status) ? row.status : "new"}"><span class="status-label">${{ new: "未対応", working: "対応中", done: "対応済み" }[row.status] || "未対応"}</span><h2>${esc(categories[row.category] || "お問い合わせ")}</h2><p class="contact-meta">${esc(row.name || "お名前未記入")}<br>${esc(row.album_id ? "アルバムID：" + row.album_id : row.email)}<br>${esc(timestamp(row.created_at))}</p><p class="contact-id">受付番号：${esc(row.id)}</p><div class="message-body">${esc(row.message)}</div><div class="contact-actions"><select aria-label="対応状況" data-contact-status="${esc(row.id)}">${[
+              `<details class="contact-message status-${["new", "working", "done"].includes(row.status) ? row.status : "new"}"><summary><span class="status-label">${{ new: "未対応", working: "対応中", done: "対応済み" }[row.status] || "未対応"}</span><h2>${esc(categories[row.category] || "お問い合わせ")}</h2><time>${esc(timestamp(row.created_at))}</time></summary><p class="contact-meta">${esc(row.name || "お名前未記入")}<br>${esc(row.album_id ? "アルバムID：" + row.album_id : row.email)}<br>${esc(timestamp(row.created_at))}</p><p class="contact-id">受付番号：${esc(row.id)}</p><div class="message-body">${esc(row.message)}</div><div class="contact-actions"><select aria-label="対応状況" data-contact-status="${esc(row.id)}">${[
                 ["new", "未対応"],
                 ["working", "対応中"],
                 ["done", "対応済み"],
@@ -1854,7 +2163,7 @@
                 )
                 .join(
                   "",
-                )}</select><button data-contact-save="${esc(row.id)}">状態を保存</button></div></article>`,
+                )}</select><button data-contact-save="${esc(row.id)}">状態を保存</button>${row.status === "done" ? `<button type="button" class="danger-button" data-contact-delete="${esc(row.id)}">削除</button>` : ""}</div></details>`,
           )
           .join("");
         $("contact-page").textContent = contactPage + "ページ";
@@ -1881,12 +2190,24 @@
       loadContacts();
     };
     $("contact-list").onclick = async (event) => {
+      const remove = event.target.closest("[data-contact-delete]");
+      if (remove && requireAdminAction()) {
+        const row = contactRows.get(remove.dataset.contactDelete);
+        if (row?.status === "done") {
+          contactDeleting = row;
+          $("contact-delete-status").textContent = "";
+          $("contact-delete-dialog").showModal();
+        }
+        return;
+      }
       const button = event.target.closest("[data-contact-save]");
       if (!button || !authorized) return;
       const current = generation;
       button.disabled = true;
       try {
-        const select = button.closest(".contact-message").querySelector("[data-contact-status]");
+        const select = button
+          .closest(".contact-message")
+          .querySelector("[data-contact-status]");
         await contactRequest("status", {
           method: "POST",
           body: { id: button.dataset.contactSave, status: select.value },
@@ -1907,7 +2228,9 @@
       if (
         !authorized ||
         notificationBusy ||
-        (!force && notificationFetchedAt && Date.now() - notificationFetchedAt < 300000)
+        (!force &&
+          notificationFetchedAt &&
+          Date.now() - notificationFetchedAt < 300000)
       )
         return;
       notificationBusy = true;
@@ -1919,7 +2242,10 @@
         const count = Math.max(0, Number(result.new_count) || 0);
         $("contact-alert").hidden = count === 0;
         $("contact-alert").textContent = "● " + (count > 99 ? "99+" : count);
-        $("contact-alert").setAttribute("aria-label", "未対応のお問い合わせ " + count + "件");
+        $("contact-alert").setAttribute(
+          "aria-label",
+          "未対応のお問い合わせ " + count + "件",
+        );
       } catch {
         /* 一覧では取得エラーを表示。通知だけの失敗で画面を遮りません。 */
       } finally {
@@ -1938,7 +2264,9 @@
       deletingUser = userRows.get(button.dataset.deleteUser);
       if (!deletingUser) return;
       $("delete-user-label").textContent =
-        (deletingUser.nickname || "未設定") + " ／ " + (deletingUser.album_id || "ID未発行");
+        (deletingUser.nickname || "未設定") +
+        " ／ " +
+        (deletingUser.album_id || "ID未発行");
       $("delete-user-ack").checked = false;
       $("delete-user-confirm").disabled = true;
       $("delete-user-message").textContent = "";
@@ -1953,10 +2281,17 @@
       if (deleteBusy) e.preventDefault();
     });
     $("delete-user-ack").onchange = () => {
-      $("delete-user-confirm").disabled = deleteBusy || !$("delete-user-ack").checked;
+      $("delete-user-confirm").disabled =
+        deleteBusy || !$("delete-user-ack").checked;
     };
     $("delete-user-confirm").onclick = async () => {
-      if (!authorized || !deletingUser || !$("delete-user-ack").checked || deleteBusy) return;
+      if (
+        !authorized ||
+        !deletingUser ||
+        !$("delete-user-ack").checked ||
+        deleteBusy
+      )
+        return;
       deleteBusy = true;
       $("delete-user-confirm").disabled = true;
       $("delete-user-message").textContent = "削除中…";
@@ -1973,7 +2308,8 @@
         refreshContactNotification(true);
         message("アカウントと関連情報を削除しました。");
       } catch (error) {
-        if (current === generation) $("delete-user-message").textContent = errorText(error);
+        if (current === generation)
+          $("delete-user-message").textContent = errorText(error);
       } finally {
         deleteBusy = false;
         $("delete-user-confirm").disabled = !$("delete-user-ack").checked;
@@ -1986,7 +2322,8 @@
     async function refreshSyncProgress() {
       if (!authorized || $("admin-cards").hidden) return;
       const data = window.PUBLIC_CATALOG_CACHE.peek();
-      $("sync-progress-status").textContent = "SQLで追加・更新したカード情報を表示しています。";
+      $("sync-progress-status").textContent =
+        "SQLで追加・更新したカード情報を表示しています。";
       $("sync-progress-counts").textContent = data
         ? "登録カード " + data.cards.length + "枚"
         : "未確認";
@@ -2012,13 +2349,17 @@
       return `<div class="usage-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong>${note ? `<small>${esc(note)}</small>` : ""}</div>`;
     }
     function quotaCard(label, value, limit) {
-      if (value === null) return metricCard(label, "未取得", "無料枠 " + formatBytes(limit));
+      if (value === null)
+        return metricCard(label, "未取得", "無料枠 " + formatBytes(limit));
       const percent = Math.max(0, (Number(value) / limit) * 100);
-      const tone = percent >= 90 ? "quota-danger" : percent >= 80 ? "quota-warning" : "";
+      const tone =
+        percent >= 90 ? "quota-danger" : percent >= 80 ? "quota-warning" : "";
       return `<div class="usage-metric ${tone}"><span>${esc(label)}</span><strong>${esc(formatBytes(value))}</strong><small>無料枠 ${esc(formatBytes(limit))} ／ ${percent.toFixed(1)}%</small><div class="quota-bar"><i style="width:${Math.min(100, percent)}%"></i></div></div>`;
     }
     function showRegistrationStatus(status) {
-      $("registration-state").textContent = status.allowed ? "受付中" : "新規登録を停止中";
+      $("registration-state").textContent = status.allowed
+        ? "受付中"
+        : "新規登録を停止中";
       $("registration-state").classList.toggle("paused", !status.allowed);
     }
     let maintenanceRevision = 0;
@@ -2028,14 +2369,20 @@
       $("maintenance-stop").hidden = status.maintenance !== true;
       $("maintenance-enabled").checked = status.maintenance === true;
       $("maintenance-admin-message").value =
-        status.message || "ただ今システムのメンテナンスをしていますので、アルバムを開けません。";
+        status.message ||
+        "ただ今システムのメンテナンスをしていますので、アルバムを開けません。";
       $("maintenance-ends-at").value = status.ends_at
-        ? new Date(new Date(status.ends_at).getTime() + 9 * 3600000).toISOString().slice(0, 16)
+        ? new Date(new Date(status.ends_at).getTime() + 9 * 3600000)
+            .toISOString()
+            .slice(0, 16)
         : "";
       $("maintenance-state").textContent = status.maintenance
         ? "メンテナンスON · 一般サイトの利用を停止中"
         : "メンテナンスOFF · 通常の受付設定で運用中";
-      $("maintenance-state").classList.toggle("paused", status.maintenance === true);
+      $("maintenance-state").classList.toggle(
+        "paused",
+        status.maintenance === true,
+      );
     }
     async function loadUsage() {
       if (!authorized || usageBusy) return;
@@ -2058,11 +2405,21 @@
         $("usage-cards").innerHTML =
           quotaCard("DB全体の容量", data.database_bytes, 500000000) +
           quotaCard("ストレージ", data.storage_bytes, 1000000000) +
-          metricCard("登録アカウント", Number(data.accounts).toLocaleString() + "件") +
+          metricCard(
+            "登録アカウント",
+            Number(data.accounts).toLocaleString() + "件",
+          ) +
           metricCard("登録カード", Number(data.cards).toLocaleString() + "枚") +
-          metricCard("所持記録", Number(data.ownership_records).toLocaleString() + "件") +
-          metricCard("DB接続", Number(data.connections).toLocaleString() + "件");
-        $("usage-measured").textContent = "確認日時：" + timestamp(data.measured_at);
+          metricCard(
+            "所持記録",
+            Number(data.ownership_records).toLocaleString() + "件",
+          ) +
+          metricCard(
+            "DB接続",
+            Number(data.connections).toLocaleString() + "件",
+          );
+        $("usage-measured").textContent =
+          "確認日時：" + timestamp(data.measured_at);
         $("registration-enabled").checked = settings.registration_enabled;
         $("registration-message").value = settings.pause_message;
         $("registration-db-limit").value = settings.database_limit_bytes
@@ -2087,7 +2444,8 @@
         message("");
 
         if (!$("traffic-message").textContent)
-          $("traffic-message").textContent = "通信統計はボタンを押して確認できます。";
+          $("traffic-message").textContent =
+            "通信統計はボタンを押して確認できます。";
       } catch (error) {
         if (current === generation && authorized) message(errorText(error));
       } finally {
@@ -2122,16 +2480,30 @@
           metricCard("30日以内のログイン", a.signed_in_30d + "人") +
           metricCard("所持カード合計", o.quantity + "枚") +
           metricCard("所持記録のある利用者", o.owners + "人") +
-          metricCard("DB接続状態", data.sessions.map((s) => s.state + "：" + s.count).join(" ／ "));
+          metricCard(
+            "DB接続状態",
+            data.sessions.map((s) => s.state + "：" + s.count).join(" ／ "),
+          );
         const total = Number(d.blocks_read) + Number(d.blocks_hit);
         $("usage-detail-stats").innerHTML =
           metricCard(
             "DBバッファのヒット率",
-            total ? ((100 * Number(d.blocks_hit)) / total).toFixed(2) + "%" : "未計測",
+            total
+              ? ((100 * Number(d.blocks_hit)) / total).toFixed(2) + "%"
+              : "未計測",
           ) +
-          metricCard("確定トランザクション", Number(d.commits || 0).toLocaleString()) +
-          metricCard("ロールバック", Number(d.rollbacks || 0).toLocaleString()) +
-          metricCard("デッドロック", Number(d.deadlocks || 0).toLocaleString()) +
+          metricCard(
+            "確定トランザクション",
+            Number(d.commits || 0).toLocaleString(),
+          ) +
+          metricCard(
+            "ロールバック",
+            Number(d.rollbacks || 0).toLocaleString(),
+          ) +
+          metricCard(
+            "デッドロック",
+            Number(d.deadlocks || 0).toLocaleString(),
+          ) +
           metricCard("一時ファイル書き込み", formatBytes(d.temp_bytes || 0)) +
           metricCard(
             "挿入／更新／削除行",
@@ -2160,9 +2532,13 @@
           ? metricCard("保存済み結果", h.retained + "件") +
             metricCard("HTTP成功", h.success + "件") +
             metricCard("HTTP失敗・時間切れ", h.errors + "件") +
-            metricCard("集計期間", timestamp(h.oldest) + "〜" + timestamp(h.latest))
+            metricCard(
+              "集計期間",
+              timestamp(h.oldest) + "〜" + timestamp(h.latest),
+            )
           : metricCard("HTTP結果", "未取得");
-        $("usage-details-message").textContent = "確認日時：" + timestamp(data.measured_at);
+        $("usage-details-message").textContent =
+          "確認日時：" + timestamp(data.measured_at);
       } catch (error) {
         if (authorized && current === generation)
           $("usage-details-message").textContent = errorText(error);
@@ -2175,14 +2551,17 @@
     let trafficLoadedAt = 0,
       trafficBusy = false;
     async function loadTraffic(current = generation) {
-      if (!authorized || trafficBusy || Date.now() - trafficLoadedAt < 300000) return;
+      if (!authorized || trafficBusy || Date.now() - trafficLoadedAt < 300000)
+        return;
       trafficBusy = true;
       $("reload-traffic").disabled = true;
       $("traffic-message").textContent = "通信統計を確認中…";
       $("traffic-totals").replaceChildren();
       $("traffic-chart").replaceChildren();
       try {
-        const { data: result, error } = await db.rpc("card_admin_database_traffic");
+        const { data: result, error } = await db.rpc(
+          "card_admin_database_traffic",
+        );
         if (error) throw error;
         if (current !== generation || !authorized) return;
         if (!result?.database) throw Error("DB統計の応答を確認してください。");
@@ -2190,7 +2569,11 @@
         const stats = result.database;
         const number = (value) => (Number(value) || 0).toLocaleString();
         $("traffic-totals").innerHTML =
-          metricCard("DBコミット", number(stats.commits) + "回", "APIリクエスト数とは異なります") +
+          metricCard(
+            "DBコミット",
+            number(stats.commits) + "回",
+            "APIリクエスト数とは異なります",
+          ) +
           metricCard("DBロールバック", number(stats.rollbacks) + "回") +
           metricCard("現在の接続", number(stats.connections) + "接続") +
           metricCard("更新した行", number(stats.rows_updated) + "行") +
@@ -2199,8 +2582,16 @@
         const http = result.http;
         if (http) {
           $("traffic-totals").innerHTML +=
-            metricCard("DB発HTTP・成功", number(http.success) + "件", "保持されている応答のみ") +
-            metricCard("DB発HTTP・エラー", number(http.errors) + "件", "保持されている応答のみ");
+            metricCard(
+              "DB発HTTP・成功",
+              number(http.success) + "件",
+              "保持されている応答のみ",
+            ) +
+            metricCard(
+              "DB発HTTP・エラー",
+              number(http.errors) + "件",
+              "保持されている応答のみ",
+            );
         }
         $("traffic-message").textContent =
           "取得日時：" +
@@ -2209,7 +2600,10 @@
             ? " ／ DB統計の集計開始：" + timestamp(stats.stats_reset)
             : " ／ DB統計の集計開始日時は未取得") +
           (http?.oldest
-            ? " ／ HTTP記録：" + timestamp(http.oldest) + "〜" + timestamp(http.latest)
+            ? " ／ HTTP記録：" +
+              timestamp(http.oldest) +
+              "〜" +
+              timestamp(http.latest)
             : "");
         $("traffic-chart").innerHTML = (result.sessions || [])
           .map((row) =>
@@ -2255,13 +2649,16 @@
         const { data, error } = await db.rpc("card_admin_set_maintenance", {
           p_enabled: false,
           p_message:
-            savedMessage || "ただ今システムのメンテナンスをしていますので、アルバムを開けません。",
+            savedMessage ||
+            "ただ今システムのメンテナンスをしていますので、アルバムを開けません。",
           p_ends_at: null,
         });
         if (error) throw error;
         if (current !== generation || !authorized) return;
         if (!data || data.maintenance !== false) {
-          throw Error("解除結果を確認できませんでした。使用状況を再取得して確認してください。");
+          throw Error(
+            "解除結果を確認できませんでした。使用状況を再取得して確認してください。",
+          );
         }
         maintenanceRevision++;
         usageSnapshot = null;
@@ -2271,7 +2668,8 @@
           "メンテナンスを解除しました。一般サイトで再びログインできます。";
       } catch (error) {
         if (current === generation && authorized) {
-          $("maintenance-save-message").textContent = "解除に失敗しました：" + errorText(error);
+          $("maintenance-save-message").textContent =
+            "解除に失敗しました：" + errorText(error);
         }
       } finally {
         $("maintenance-save").disabled = false;
@@ -2285,8 +2683,13 @@
       const text = $("maintenance-admin-message").value.trim();
       const value = $("maintenance-ends-at").value;
       const endsAt = value ? new Date(value + "+09:00") : null;
-      if (!text || text.length > 500 || (endsAt && Number.isNaN(endsAt.getTime()))) {
-        $("maintenance-save-message").textContent = "案内文・終了予定を確認してください。";
+      if (
+        !text ||
+        text.length > 500 ||
+        (endsAt && Number.isNaN(endsAt.getTime()))
+      ) {
+        $("maintenance-save-message").textContent =
+          "案内文・終了予定を確認してください。";
         return;
       }
       const enabled = $("maintenance-enabled").checked;
@@ -2303,7 +2706,9 @@
         if (error) throw error;
         if (current !== generation || !authorized) return;
         if (!data || data.maintenance !== enabled) {
-          throw Error("保存結果を確認できませんでした。使用状況を再取得して確認してください。");
+          throw Error(
+            "保存結果を確認できませんでした。使用状況を再取得して確認してください。",
+          );
         }
         maintenanceRevision++;
         usageSnapshot = null;
@@ -2314,7 +2719,8 @@
           : "メンテナンスを解除しました。";
       } catch (error) {
         if (current === generation && authorized) {
-          $("maintenance-save-message").textContent = "保存に失敗しました：" + errorText(error);
+          $("maintenance-save-message").textContent =
+            "保存に失敗しました：" + errorText(error);
         }
       } finally {
         $("maintenance-save").disabled = false;
@@ -2332,9 +2738,12 @@
         !text ||
         text.length > 200 ||
         (limit !== null &&
-          (!Number.isSafeInteger(limit) || limit < 1000000 || limit > 1099511627776))
+          (!Number.isSafeInteger(limit) ||
+            limit < 1000000 ||
+            limit > 1099511627776))
       ) {
-        $("registration-save-message").textContent = "設定値を確認してください。";
+        $("registration-save-message").textContent =
+          "設定値を確認してください。";
         return;
       }
       $("registration-save").disabled = true;
@@ -2356,6 +2765,309 @@
         $("registration-save").disabled = false;
       }
     };
+    let verseAdminPage = 0,
+      verseHistoryPage = 0,
+      verseRequest = 0,
+      verseHistoryRequest = 0;
+    let verseRows = new Map(),
+      verseEditing = null,
+      verseSaving = false;
+    let contactRows = new Map(),
+      contactDeleting = null,
+      contactDeleteBusy = false;
+    const jstInput = (value) =>
+      new Date(new Date(value).getTime() + 9 * 3600000)
+        .toISOString()
+        .slice(0, 19);
+    function warnAdminLogin(text = "ログインしてください") {
+      const warning = $("admin-warning");
+      warning.textContent = text;
+      warning.hidden = false;
+      clearTimeout(warnAdminLogin.timer);
+      warnAdminLogin.timer = setTimeout(() => {
+        warning.hidden = true;
+      }, 6000);
+    }
+    let forcingLogin = false;
+    function requireAdminAction() {
+      if (authorized && session?.user?.id) return true;
+      warnAdminLogin();
+      $("admin-app").hidden = true;
+      $("admin-nav").hidden = true;
+      $("admin-auth").hidden = false;
+      for (const dialog of document.querySelectorAll("dialog[open]"))
+        dialog.close();
+      history.replaceState(null, "", "#login");
+      window.scrollTo({ top: 0, behavior: "instant" });
+      return false;
+    }
+    forceAdminLogin = () => {
+      if (forcingLogin || !authorized) return;
+      forcingLogin = true;
+      generation++;
+      session = null;
+      hidePrivateData();
+      requireAdminAction();
+      void db.auth
+        .signOut({ scope: "local" })
+        .catch(() => {})
+        .finally(() => {
+          forcingLogin = false;
+        });
+    };
+    document.addEventListener(
+      "click",
+      (event) => {
+        if (
+          event.target.closest(
+            "#admin-app button,#admin-nav button,dialog button",
+          ) &&
+          !requireAdminAction()
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      },
+      true,
+    );
+    document.addEventListener(
+      "submit",
+      (event) => {
+        if (
+          event.target.closest("#admin-app,dialog") &&
+          !requireAdminAction()
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      },
+      true,
+    );
+    async function adminRPC(name, args = {}) {
+      if (!requireAdminAction()) throw Error("ログインしてください");
+      const current = generation;
+      const { data, error } = await db.rpc(name, args);
+      if (error) throw error;
+      if (!authorized || current !== generation)
+        throw Error("ログインしてください");
+      return data;
+    }
+    async function loadVerseAdmin() {
+      if (!requireAdminAction()) return;
+      const request = ++verseRequest,
+        current = generation;
+      $("verse-admin-status").textContent = "コーデを読み込み中…";
+      try {
+        const data = await adminRPC("card_admin_verse_list", {
+          p_family: $("verse-admin-family").value,
+          p_query: $("verse-admin-query").value.trim(),
+          p_offset: verseAdminPage * 24,
+          p_limit: 24,
+        });
+        if (request !== verseRequest || current !== generation || !authorized)
+          return;
+        verseRows = new Map(
+          (data.rows || []).slice(0, 24).map((c) => [c.id, c]),
+        );
+        $("verse-admin-list").innerHTML = [...verseRows.values()]
+          .map(
+            (c) =>
+              `<article class="admin-card verse-catalog-card">${c.image ? `<img src="${esc(c.thumbnail || c.image)}" alt="${esc(c.name)}" loading="lazy">` : `<div class="pending-no-image">画像未登録</div>`}<p class="muted">${esc(c.code)} · ${esc(c.rarity || "未分類")}</p><p>${esc(c.name)}</p><p class="muted">${c.family === "onegai" ? "おねがい" : "ひみつ"} · ${c.part_ids.length}パーツ</p><button type="button" data-verse-admin-edit="${esc(c.id)}">情報を編集</button></article>`,
+          )
+          .join("");
+        $("verse-admin-prev").disabled = verseAdminPage === 0;
+        $("verse-admin-next").disabled = (data.rows || []).length <= 24;
+        $("verse-admin-page").textContent = `${verseAdminPage + 1}ページ`;
+        $("verse-admin-status").textContent = verseRows.size
+          ? `${verseRows.size}コーデを表示`
+          : "該当するコーデがありません。";
+      } catch (error) {
+        if (request === verseRequest && authorized)
+          $("verse-admin-status").textContent = errorText(error);
+      }
+    }
+    const verseField = (label, key, value, type = "text") =>
+      `<label>${label}<input data-verse-field="${key}" type="${type}" value="${esc(value ?? "")}" ${type === "number" ? 'min="0" max="1000000" step="1"' : 'maxlength="2000"'}></label>`;
+    $("verse-admin-list").onclick = (event) => {
+      const button = event.target.closest("[data-verse-admin-edit]");
+      if (!button || !requireAdminAction()) return;
+      verseEditing = verseRows.get(button.dataset.verseAdminEdit);
+      if (!verseEditing) return;
+      const c = verseEditing;
+      $("verse-editor-title").textContent = c.name;
+      $("verse-editor-fields").innerHTML =
+        `<fieldset class="verse-edit-coordinate"><legend>フルコーデ</legend><p class="muted">ID：${esc(c.id)}</p><div class="editor-preview verse-editor-preview">${c.image ? `<img src="${esc(c.image)}" alt="フルコーデ">` : ""}<div class="edit-fields verse-edit-grid">${verseField("コーデ名", "name", c.name)}${verseField("フルコーデコード", "code", c.code)}${verseField("レアリティ", "rarity", c.rarity)}${verseField("画像URL", "image", c.image, "url")}${verseField("一覧画像URL", "thumbnail", c.thumbnail, "url")}</div></div><label>だん・キャンペーン情報（JSON配列）<textarea data-verse-field="appearances" rows="5">${esc(JSON.stringify(c.appearances, null, 2))}</textarea></label></fieldset><h3>構成パーツ</h3>${c.parts.map((p) => `<fieldset data-verse-part="${p.id}"><legend>${esc(p.slot)} · ID ${p.id}</legend><div class="verse-part-editor">${p.image ? `<img src="${esc(p.image)}" alt="${esc(p.slot)}" loading="lazy">` : ""}<div class="verse-edit-grid">${verseField("部位", "slot", p.slot)}${verseField("バズパワー（未確認は空欄）", "buzz", p.buzz, "number")}${verseField("コード（カンマ区切り）", "codes", p.codes.join(", "))}${verseField("画像URL", "image", p.image, "url")}</div></div></fieldset>`).join("")}`;
+      $("verse-editor-status").textContent = "";
+      $("verse-editor-dialog").showModal();
+    };
+    $("verse-editor-close").onclick = () => {
+      if (!verseSaving) $("verse-editor-dialog").close();
+    };
+    $("verse-editor-dialog").addEventListener("cancel", (e) => {
+      if (verseSaving) e.preventDefault();
+    });
+    $("verse-editor-form").onsubmit = async (event) => {
+      event.preventDefault();
+      if (!requireAdminAction() || verseSaving || !verseEditing) return;
+      verseSaving = true;
+      $("verse-editor-save").disabled = true;
+      try {
+        const values = (root) =>
+          Object.fromEntries(
+            [...root.querySelectorAll("[data-verse-field]")].map((e) => [
+              e.dataset.verseField,
+              e.value.trim(),
+            ]),
+          );
+        const coordinate = values(
+          document.querySelector(".verse-edit-coordinate"),
+        );
+        coordinate.appearances = JSON.parse(coordinate.appearances);
+        const parts = [
+          ...$("verse-editor-fields").querySelectorAll("[data-verse-part]"),
+        ].map((root) => {
+          const v = values(root);
+          return {
+            ...v,
+            id: Number(root.dataset.versePart),
+            buzz: v.buzz === "" ? null : Number(v.buzz),
+            codes: v.codes
+              .split(/[,、\n]/)
+              .map((x) => x.trim())
+              .filter(Boolean),
+          };
+        });
+        await adminRPC("card_admin_verse_save", {
+          p_id: verseEditing.id,
+          p_expected: verseEditing.edit_version,
+          p_coordinate: coordinate,
+          p_parts: parts,
+        });
+        $("verse-editor-dialog").close();
+        await loadVerseAdmin();
+        message("コーデとパーツの変更を保存しました。");
+      } catch (error) {
+        if (authorized) $("verse-editor-status").textContent = errorText(error);
+      } finally {
+        verseSaving = false;
+        $("verse-editor-save").disabled = false;
+      }
+    };
+    $("reload-verse").onclick = loadVerseAdmin;
+    $("verse-admin-search").onclick = () => {
+      verseAdminPage = 0;
+      loadVerseAdmin();
+    };
+    $("verse-admin-family").onchange = () => {
+      verseAdminPage = 0;
+      loadVerseAdmin();
+    };
+    $("verse-admin-query").onkeydown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        verseAdminPage = 0;
+        loadVerseAdmin();
+      }
+    };
+    $("verse-admin-prev").onclick = () => {
+      verseAdminPage = Math.max(0, verseAdminPage - 1);
+      loadVerseAdmin();
+    };
+    $("verse-admin-next").onclick = () => {
+      verseAdminPage++;
+      loadVerseAdmin();
+    };
+    async function loadVerseHistory() {
+      if (!requireAdminAction()) return;
+      const request = ++verseHistoryRequest;
+      try {
+        const data = await adminRPC("card_admin_verse_history", {
+          p_offset: verseHistoryPage * 20,
+          p_limit: 20,
+        });
+        if (request !== verseHistoryRequest || !authorized) return;
+        $("verse-history-list").innerHTML =
+          (data.rows || [])
+            .slice(0, 20)
+            .map((row) => {
+              const v = row.after_data || row.before_data || {};
+              const changed = [
+                ...new Set([
+                  ...Object.keys(row.before_data || {}),
+                  ...Object.keys(row.after_data || {}),
+                ]),
+              ].filter(
+                (k) =>
+                  JSON.stringify(row.before_data?.[k]) !==
+                  JSON.stringify(row.after_data?.[k]),
+              );
+              return `<details class="compact-history"><summary><span class="history-action">${{ INSERT: "追加", UPDATE: "更新", DELETE: "削除" }[row.operation]}</span><strong>${esc(v.name || v.codes?.join(" / ") || row.target_id)}</strong><small>${row.entity === "coordinate" ? "コーデ" : "パーツ"} · ${esc(timestamp(row.recorded_at))}</small></summary><p class="muted">${esc(row.target_id)} · ${esc(changed.map((k) => labels[k] || k).join("、"))}</p></details>`;
+            })
+            .join("") || '<p class="muted">導入後の履歴はまだありません。</p>';
+        $("verse-history-prev").disabled = verseHistoryPage === 0;
+        $("verse-history-next").disabled = (data.rows || []).length <= 20;
+        $("verse-history-page").textContent = `${verseHistoryPage + 1}ページ`;
+      } catch (error) {
+        if (authorized) message(errorText(error));
+      }
+    }
+    document.querySelectorAll("[data-import-catalog]").forEach(
+      (button) =>
+        (button.onclick = () => {
+          if (!requireAdminAction()) return;
+          const verse = button.dataset.importCatalog === "verse";
+          $("card-import-body").hidden = verse;
+          $("verse-import-body").hidden = !verse;
+          document
+            .querySelectorAll("[data-import-catalog]")
+            .forEach((b) =>
+              b.setAttribute("aria-pressed", String(b === button)),
+            );
+          if (verse) loadVerseHistory();
+        }),
+    );
+    $("reload-verse-history").onclick = loadVerseHistory;
+    $("verse-history-prev").onclick = () => {
+      verseHistoryPage = Math.max(0, verseHistoryPage - 1);
+      loadVerseHistory();
+    };
+    $("verse-history-next").onclick = () => {
+      verseHistoryPage++;
+      loadVerseHistory();
+    };
+    $("reload-operations").onclick = () => {
+      usageFetchedAt = 0;
+      loadUsage();
+    };
+    $("contact-delete-cancel").onclick = () => {
+      if (!contactDeleteBusy) $("contact-delete-dialog").close();
+    };
+    $("contact-delete-dialog").addEventListener("cancel", (e) => {
+      if (contactDeleteBusy) e.preventDefault();
+    });
+    $("contact-delete-confirm").onclick = async () => {
+      if (!requireAdminAction() || contactDeleteBusy || !contactDeleting)
+        return;
+      contactDeleteBusy = true;
+      $("contact-delete-confirm").disabled = true;
+      try {
+        await adminRPC("card_admin_contact_delete", {
+          p_id: contactDeleting.id,
+          p_updated_at: contactDeleting.updated_at,
+        });
+        $("contact-delete-dialog").close();
+        contactDeleting = null;
+        await loadContacts();
+        message("対応済みのお問い合わせを削除しました。");
+      } catch (error) {
+        if (authorized)
+          $("contact-delete-status").textContent = errorText(error);
+      } finally {
+        contactDeleteBusy = false;
+        $("contact-delete-confirm").disabled = false;
+      }
+    };
+
     async function initializeSession() {
       const { data, error } = await db.auth.getSession();
       if (error) throw error;
