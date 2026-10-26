@@ -13,10 +13,7 @@
       src="./vendor/supabase.js?v=20261026-private-qr-v1"
     ></script>
     <script defer="" src="./config.js?v=20261026-private-qr-v1"></script>
-    <script
-      defer=""
-      src="./catalog-cache.js?v=20261026-private-qr-v1"
-    ></script>
+    <script defer="" src="./catalog-cache.js?v=20261026-private-qr-v1"></script>
     <script defer="" src="./admin.js?v=20261026-private-qr-v1"></script>
     <link rel="apple-touch-icon" href="./icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
@@ -45,7 +42,8 @@
           <small>カードアルバム</small><strong>管理ページ</strong>
         </div>
       </div>
-      <div hidden="" id="admin-nav"><button type="button" data-page="visibility">公開設定・承認</button>
+      <div hidden="" id="admin-nav">
+        <button type="button" data-page="visibility">公開設定・承認</button>
         <button class="active" data-page="users">
           <svg
             viewBox="0 0 24 24"
@@ -302,7 +300,8 @@
             ><button id="card-next">次へ</button>
           </div>
         </section>
-        <section id="admin-visibility" hidden></section><section id="admin-users">
+        <section id="admin-visibility" hidden></section>
+        <section id="admin-users">
           <div class="section-heading">
             <h1>登録者の確認</h1>
             <button id="reload-users">更新</button>
@@ -344,7 +343,11 @@
                 <option value="newest">登録が新しい順</option>
                 <option value="oldest">登録が古い順</option>
                 <option value="recent">最終ログインが新しい順</option>
-                <option value="inactive">未ログイン期間が長い順</option><option value="cards_desc">所持カード数が多い順</option><option value="cards_asc">所持カード数が少ない順</option><option value="verse_desc">所持コーデ数が多い順</option><option value="verse_asc">所持コーデ数が少ない順</option>
+                <option value="inactive">未ログイン期間が長い順</option>
+                <option value="cards_desc">所持カード数が多い順</option>
+                <option value="cards_asc">所持カード数が少ない順</option>
+                <option value="verse_desc">所持コーデ数が多い順</option>
+                <option value="verse_asc">所持コーデ数が少ない順</option>
               </select></label
             ><label
               >共有URL<select id="user-share-filter">
@@ -523,19 +526,20 @@
           </div>
           <p class="muted" id="usage-measured"></p>
           <div class="usage-grid" id="usage-cards"></div>
-          <details class="usage-reference"><summary>使用量の見方・無料枠について</summary>
-          <p class="muted">
-            無料枠の参考値：DB 500MB／Storage 1GB／Egress 5GB・Cached Egress
-            5GB／月間アクティブユーザー
-            50,000。APIリクエスト数には無料枠の固定上限はありません。実測値と月間の課金対象使用量は区別して確認してください。
-          </p>
-          <a
-            class="dashboard-link"
-            href="https://supabase.com/pricing"
-            rel="noopener noreferrer"
-            target="_blank"
-            >無料プランの公式上限 ↗</a
-          >
+          <details class="usage-reference">
+            <summary>使用量の見方・無料枠について</summary>
+            <p class="muted">
+              無料枠の参考値：DB 500MB／Storage 1GB／Egress 5GB・Cached Egress
+              5GB／月間アクティブユーザー
+              50,000。APIリクエスト数には無料枠の固定上限はありません。実測値と月間の課金対象使用量は区別して確認してください。
+            </p>
+            <a
+              class="dashboard-link"
+              href="https://supabase.com/pricing"
+              rel="noopener noreferrer"
+              target="_blank"
+              >無料プランの公式上限 ↗</a
+            >
           </details>
           <article class="usage-panel">
             <div class="section-heading">
@@ -995,7 +999,9 @@
     </dialog>
     <dialog id="contact-delete-dialog" aria-labelledby="contact-delete-title">
       <h2 id="contact-delete-title">対応済みのお問い合わせを削除</h2>
-      <p>このお問い合わせと返信を完全に削除します。返信は本人のお知らせからも削除されます。元には戻せません。</p>
+      <p>
+        このお問い合わせと返信を完全に削除します。返信は本人のお知らせからも削除されます。元には戻せません。
+      </p>
       <p id="contact-delete-status" role="status"></p>
       <div class="editor-actions">
         <button type="button" id="contact-delete-cancel">キャンセル</button
@@ -1012,14 +1018,56 @@
 
     <dialog id="contact-reply-dialog" aria-labelledby="contact-reply-title">
       <form id="contact-reply-form">
-        <div class="section-heading"><h2 id="contact-reply-title">お問い合わせへの返信</h2><button id="contact-reply-close" type="button" aria-label="閉じる">×</button></div>
+        <div class="section-heading">
+          <h2 id="contact-reply-title">お問い合わせへの返信</h2>
+          <button id="contact-reply-close" type="button" aria-label="閉じる">
+            ×
+          </button>
+        </div>
         <p id="contact-reply-reference" class="contact-id"></p>
-        <p>問い合わせた本人のお知らせに、タイトル「お問い合わせへの返信」・タグ「返信」で表示します。</p>
-        <label>返信内容<textarea id="contact-reply-body" rows="8" maxlength="4000" required></textarea></label>
+        <p>
+          問い合わせた本人のお知らせに、タイトル「お問い合わせへの返信」・タグ「返信」で表示します。
+        </p>
+        <label
+          >返信内容<textarea
+            id="contact-reply-body"
+            rows="8"
+            maxlength="4000"
+            required
+          ></textarea>
+        </label>
         <p id="contact-reply-status" role="status" aria-live="polite"></p>
-        <div class="editor-actions"><button id="contact-reply-save" class="primary" type="submit">返信を送信</button><button id="contact-reply-delete" class="danger-button" type="button" hidden>返信を削除</button></div>
+        <div class="editor-actions">
+          <button id="contact-reply-save" class="primary" type="submit">
+            返信を送信</button
+          ><button
+            id="contact-reply-delete"
+            class="danger-button"
+            type="button"
+            hidden
+          >
+            返信を削除
+          </button>
+        </div>
       </form>
-      <div id="contact-reply-delete-confirm" hidden><p>返信を削除すると、本人のお知らせからも削除されます。削除しますか？</p><button type="button" id="contact-reply-delete-cancel">戻る</button><button type="button" id="contact-reply-delete-execute" class="danger-button">返信を削除する</button></div>
+      <div id="contact-reply-delete-confirm" hidden>
+        <p>
+          返信を削除すると、本人のお知らせからも削除されます。削除しますか？
+        </p>
+        <button type="button" id="contact-reply-delete-cancel">戻る</button
+        ><button
+          type="button"
+          id="contact-reply-delete-execute"
+          class="danger-button"
+        >
+          返信を削除する
+        </button>
+      </div>
     </dialog>
-  <script defer src="./card-visibility-admin.js?v=20261026-private-qr-v1"></script><script defer src="./private-qr-admin.js?v=20261026-private-qr-v1"></script></body>
+    <script
+      defer
+      src="./card-visibility-admin.js?v=20261026-private-qr-v1"
+    ></script>
+    <script defer src="./private-qr-admin.js?v=20261026-save-codes-v1"></script>
+  </body>
 </html>
