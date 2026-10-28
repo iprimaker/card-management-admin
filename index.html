@@ -1,0 +1,1092 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width,initial-scale=1" name="viewport" />
+    <meta content="noindex,nofollow" name="robots" />
+    <title>カードアルバム管理</title>
+    <link href="./icon.png" rel="icon" />
+    <link href="./admin.css?v=20261029-invitation-v1" rel="stylesheet" />
+    <script src="./startup.js?v=20261029-invitation-v1"></script>
+    <script
+      defer=""
+      src="./vendor/supabase.js?v=20261029-invitation-v1"
+    ></script>
+    <script defer="" src="./config.js?v=20261029-invitation-v1"></script>
+    <script defer="" src="./catalog-cache.js?v=20261029-invitation-v1"></script>
+    <script defer src="./primagi.js?v=20261029-invitation-v1"></script>
+    <script defer="" src="./admin.js?v=20261029-invitation-v1"></script>
+    <link rel="apple-touch-icon" href="./icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="アルバム運営" />
+    <meta name="theme-color" content="#8062a7" />
+  <style>#user-qr-range[hidden]{display:none!important}#user-qr-range input{font-size:16px;box-sizing:border-box}#user-qr-range{flex-wrap:wrap}
+#invitation-create{display:grid;gap:14px}
+#invitation-create .invitation-follow{display:flex;align-items:flex-start;gap:9px;font-size:14px;font-weight:400;line-height:1.6}
+#invitation-follow-confirm{width:18px;min-width:18px;height:18px;margin:3px 0 0;padding:0;flex:0 0 18px;accent-color:#b7658d}
+#invitation-result:not([hidden]){display:grid;gap:10px;margin-top:16px}
+#invitation-url{font-size:13px;font-weight:400}
+#invitation-message{overflow-wrap:anywhere}
+#invitation-list{font-size:12px;line-height:1.7}
+#invitation-create>button,#invitation-copy{justify-self:start}
+</style></head>
+  <body>
+    <header>
+      <div class="admin-brand">
+        <span class="admin-brand-mark"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="5" y="3" width="14" height="18" rx="3"></rect>
+            <path
+              d="m12 7 1.2 2.4 2.7.4-2 1.9.5 2.7-2.4-1.3-2.4 1.3.5-2.7-2-1.9 2.7-.4z"
+            ></path></svg
+        ></span>
+        <div class="admin-brand-text">
+          <small>カードアルバム</small><strong>管理ページ</strong>
+        </div>
+      </div>
+      <div hidden="" id="admin-nav">
+        <button type="button" data-page="visibility">公開設定・承認</button>
+        <button class="active" data-page="users">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="9" cy="8" r="3"></circle>
+            <path
+              d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M17 14a5 5 0 0 1 4 4v2"
+            ></path></svg
+          ><span>登録者</span></button
+        ><button data-page="cards">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="7" y="3" width="13" height="18" rx="3"></rect>
+            <path
+              d="M4 6H3v13a2 2 0 0 0 2 2M11 9h5M11 13h5M11 17h3"
+            ></path></svg
+          ><span>カード情報</span></button
+        ><button type="button" data-page="verse">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 5h16v14H4z M8 9h8 M8 13h5 M8 16h8"></path></svg
+          >コーデ情報</button
+        ><button type="button" data-page="imports">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="7" y="3" width="13" height="18" rx="3"></rect>
+            <path
+              d="M4 6H3v13a2 2 0 0 0 2 2M11 9h5M11 13h5M11 17h3"
+            ></path></svg
+          ><span>追加履歴</span></button
+        ><button data-page="logs">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 12a8 8 0 1 0 2-5M4 4v5h5M12 8v5l3 2"></path></svg
+          ><span>修正履歴</span></button
+        ><button data-page="contacts">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M21 15a3 3 0 0 1-3 3H8l-5 3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3zM7 8h10M7 12h6"
+            ></path></svg
+          ><span>お問い合わせ</span
+          ><span
+            aria-live="polite"
+            class="notification-badge"
+            hidden=""
+            id="contact-alert"
+          ></span></button
+        ><button data-page="usage">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M5 19V11 M12 19V5 M19 19V8 M3 21h18"></path></svg
+          >使用状況</button
+        ><button type="button" data-page="operations">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M12 2v3 M12 19v3 M2 12h3 M19 12h3 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2"
+            ></path></svg
+          >運営管理</button
+        ><button type="button" data-page="announcements">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            aria-hidden="true"
+          >
+            <path d="M4 10h4l10-5v14L8 14H4zM8 14l2 6h4"></path></svg
+          ><span>お知らせ・更新情報</span></button
+        ><button id="admin-logout">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M10 12h11M17 8l4 4-4 4"
+            ></path></svg
+          ><span>ログアウト</span>
+        </button>
+      </div>
+    </header>
+    <main>
+      <section aria-live="polite" class="login-panel" id="startup-panel">
+        <p id="startup-message">管理者アプリを起動中…</p>
+        <div hidden="" id="startup-actions">
+          <button id="startup-retry" type="button">再読み込み</button>
+          <button id="startup-reset" type="button">
+            ログイン状態をリセット
+          </button>
+          <p>
+            ZIPを解凍し、index.htmlと同じ階層に各JSファイルとvendorフォルダを配置してください。
+          </p>
+        </div>
+      </section>
+      <noscript
+        ><p>管理者アプリを使うにはJavaScriptを有効にしてください。</p></noscript
+      >
+      <section class="login-panel" id="admin-auth">
+        <span class="eyebrow">ADMINISTRATION</span>
+        <h1>管理者ログイン</h1>
+        <p>管理者権限のあるアカウントでログインしてください。</p>
+        <form id="admin-login">
+          <label
+            >アルバムID<input
+              autocomplete="username"
+              id="admin-email"
+              required=""
+              type="text" /></label
+          ><label
+            >パスワード<input
+              autocomplete="current-password"
+              id="admin-password"
+              required=""
+              type="password" /></label
+          ><button class="primary" disabled="" id="admin-submit">
+            ログイン
+          </button>
+        </form>
+        <p id="admin-auth-message" role="status"></p>
+        <button id="connection-test" type="button">接続診断</button>
+        <pre hidden="" id="connection-report" role="status"></pre>
+        <button id="auth-reset" type="button">
+          保存済みログイン状態をリセット
+        </button>
+        <a href="../" id="public-site-link">一般サイトへ</a>
+      </section>
+      <section hidden="" id="admin-app">
+        <p id="admin-account"></p>
+        <section hidden="" id="admin-cards">
+          <div class="section-heading">
+            <h1>カード情報の修正</h1>
+            <div class="heading-actions">
+              <button id="force-sync">登録情報を再読み込み</button
+              ><button hidden="" id="reload-cards">再表示</button>
+            </div>
+          </div>
+          <p>手動SQLで登録した情報を修正します。所持記録のIDは維持されます。</p>
+          <article
+            aria-labelledby="sync-progress-title"
+            class="sync-progress-panel"
+          >
+            <div class="section-heading">
+              <h2 id="sync-progress-title">手動カード登録状況</h2>
+              <button hidden="" id="refresh-sync-progress" type="button">
+                状況を確認
+              </button>
+            </div>
+            <p id="sync-progress-status" role="status">確認中…</p>
+            <div class="sync-progress-counts" id="sync-progress-counts"></div>
+            <p class="muted" id="sync-progress-time"></p>
+            <p class="muted" hidden="">
+              ページ単位の進捗です。新しい取得先が見つかると総数が増え、％が下がる場合があります。画像の文字読み取りは含みません。
+            </p>
+          </article>
+          <div class="search-row">
+            <input
+              aria-label="カード名・コードで検索"
+              id="admin-query"
+              placeholder="カード名・コードで検索"
+              type="search"
+            /><select aria-label="作品" id="admin-game">
+              <option value="">すべて</option>
+              <option value="aikatsu">アイカツ！アンコール</option>
+              <option value="aipri">アイプリ</option></select
+            ><select id="admin-state" aria-label="登録状態">
+              <option value="registered">登録済み</option>
+              <option value="pending">未登録カード・確認待ち</option>
+              <option value="all">登録済み＋未登録候補</option></select
+            ><select id="admin-missing" aria-label="未登録情報で絞り込む">
+              <option value="all">すべてのカード</option>
+              <option value="missing">情報未登録のみ</option>
+              <option value="name">カード名が未登録</option>
+              <option value="code">カードコードが未登録</option>
+              <option value="character">キャラクターが未登録</option>
+              <option value="rarity">レアリティが未登録</option>
+              <option value="songs">曲名が未登録（アイプリ）</option>
+              <option value="ap">APが未登録（アイカツ）</option>
+              <option value="front">表面画像が未登録</option>
+              <option value="back">裏面画像が未登録</option>
+            </select>
+          </div>
+          <div class="pending-tools">
+            <button type="button" id="pending-new" class="primary">
+              ＋ SQL保留候補を追加</button
+            ><button type="button" id="pending-refresh">
+              SQL保留一覧を更新</button
+            ><span>正式登録するまで一般側には表示されません</span>
+          </div>
+          <p id="admin-count"></p>
+          <div class="admin-card-list" id="admin-card-list"></div>
+          <div class="pagination">
+            <button id="card-prev">前へ</button><span id="card-page"></span
+            ><button id="card-next">次へ</button>
+          </div>
+        </section>
+        <section id="admin-visibility" hidden></section>
+        <section id="admin-users">
+          <div class="section-heading">
+            <h1>登録者の確認</h1>
+            <button id="reload-users">更新</button>
+          </div>
+          <p>運営に必要な範囲でご確認ください。</p>
+          <div class="user-state-filters" aria-label="状態で絞り込み">
+            <button type="button" data-user-state="all" aria-pressed="true">
+              <span>すべて</span><b>—</b></button
+            ><button
+              type="button"
+              data-user-state="online"
+              aria-pressed="false"
+            >
+              <span>ログイン中</span><b>—</b></button
+            ><button
+              type="button"
+              data-user-state="offline"
+              aria-pressed="false"
+            >
+              <span>ログアウト中</span><b>—</b></button
+            ><button
+              type="button"
+              data-user-state="unknown"
+              aria-pressed="false"
+            >
+              <span>状態不明</span><b>—</b>
+            </button>
+          </div>
+          <div class="user-filter-toolbar">
+            <label
+              >アカウントを検索<input
+                id="user-search"
+                type="search"
+                maxlength="100"
+                placeholder="ニックネーム・アルバムID"
+                autocomplete="off" /></label
+            ><label
+              >並び順<select id="user-sort">
+                <option value="newest">登録が新しい順</option>
+                <option value="oldest">登録が古い順</option>
+                <option value="recent">最終ログインが新しい順</option>
+                <option value="inactive">未ログイン期間が長い順</option>
+                <option value="cards_desc">所持カード数が多い順</option>
+                <option value="cards_asc">所持カード数が少ない順</option>
+                <option value="verse_desc">所持コーデ数が多い順</option>
+                <option value="verse_asc">所持コーデ数が少ない順</option>
+              </select></label
+            ><label
+              >共有URL<select id="user-share-filter">
+                <option value="all">すべて</option>
+                <option value="issued">発行済み</option>
+                <option value="unissued">未発行</option>
+                <option value="public">公開中</option>
+                <option value="private">発行済み・全て非公開</option>
+              </select></label
+            ><label>QR登録数<select id="user-qr-filter"><option value="all">すべて</option><option value="yes">登録あり（1件以上）</option><option value="no">未登録（0件）</option><option value="range">件数を指定</option></select></label><span id="user-qr-range" hidden style="display:flex;align-items:center;gap:6px"><label>最小件数<input id="user-qr-min" type="number" min="0" max="2147483647" step="1" placeholder="指定なし" style="width:110px"></label><span>〜</span><label>最大件数<input id="user-qr-max" type="number" min="0" max="2147483647" step="1" placeholder="指定なし" style="width:110px"></label></span><button type="button" id="user-filter-reset">条件を解除</button>
+          </div>
+          <details class="user-state-help">
+            <summary>状態の判定について</summary>
+            <p>
+              緑：有効な認証セッションがあり、直近150秒以内に表示中の画面から通信がありました。
+            </p>
+            <p>
+              赤：明示的なログアウト記録があり、他の有効な認証セッションが残っていません。
+            </p>
+            <p>
+              黄色：非表示タブ、ブラウザ終了、通信断、記録なしなど、現在の状態を断定できません。ログインを保持していても黄色になることがあります。
+            </p>
+            <p>
+              状態は最大30秒ごとに再確認します。タブを閉じた直後は、緑が最大約180秒残る場合があります。複数端末では、いずれかが利用中なら緑です。
+            </p>
+            <p>
+              所持数はカードの枚数合計、バース・プリマジは直接フルコーデを所持するか全パーツがそろったコーデ数です。パーツ枚数は直接所持するパーツの枚数合計です。
+            </p>
+          </details>
+          <div class="user-table-meta">
+            <strong id="user-result-count">—</strong
+            ><span id="users-checked-at" role="status"></span
+            ><label
+              ><input
+                type="checkbox"
+                id="users-auto-refresh"
+                checked=""
+              />状態を自動更新</label
+            >
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">状態</th>
+                  <th scope="col">アカウント</th>
+                  <th scope="col">登録日時</th>
+                  <th scope="col">最終ログイン</th>
+                  <th scope="col">未ログイン</th>
+                  <th scope="col">所持数</th>
+                  <th scope="col">共有URL</th>
+                  <th scope="col">操作</th>
+                </tr>
+              </thead>
+              <tbody id="user-list"></tbody>
+            </table>
+          </div>
+          <div class="pagination">
+            <button id="user-prev">前へ</button><span id="user-page"></span
+            ><button id="user-next">次へ</button>
+          </div>
+        </section>
+        <section id="admin-imports" hidden="">
+          <div class="section-heading">
+            <h1>追加履歴</h1>
+            <button type="button" id="reload-imports">履歴を更新</button>
+          </div>
+          <div class="announcement-tabs">
+            <button
+              type="button"
+              data-import-catalog="cards"
+              aria-pressed="true"
+            >
+              カード</button
+            ><button
+              type="button"
+              data-import-catalog="verse"
+              aria-pressed="false"
+            >
+              コーデ・パーツ
+            </button>
+          </div>
+
+          <div id="card-import-body">
+            <p class="muted">
+              記録を開始してからのカードDBへの追加・更新を表示します。同じSQLのトランザクション内の変更をまとめています。
+            </p>
+            <p id="import-message" role="status"></p>
+            <div class="import-layout">
+              <div class="import-history-column">
+                <div id="import-batches" class="import-batches"></div>
+                <div class="pagination">
+                  <button type="button" id="import-prev">前へ</button
+                  ><span id="import-page"></span
+                  ><button type="button" id="import-next">次へ</button>
+                </div>
+              </div>
+              <div class="import-details">
+                <h2 id="import-selected-title">追加したカード</h2>
+                <div
+                  class="import-mode-tabs"
+                  role="group"
+                  aria-label="追加履歴の表示範囲"
+                >
+                  <button
+                    type="button"
+                    data-import-mode="new"
+                    aria-pressed="true"
+                  >
+                    新規追加のみ</button
+                  ><button
+                    type="button"
+                    data-import-mode="all"
+                    aria-pressed="false"
+                  >
+                    全変更
+                  </button>
+                </div>
+                <p class="muted" id="import-card-count"></p>
+                <p class="muted" id="import-card-message" role="status"></p>
+                <div id="import-card-list" class="admin-card-list"></div>
+                <div class="pagination">
+                  <button type="button" id="import-card-prev">前へ</button
+                  ><span id="import-card-page"></span
+                  ><button type="button" id="import-card-next">次へ</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="verse-import-body" hidden="">
+            <p class="muted">
+              この管理機能の導入後に行った追加・更新を記録します。以前の追加日時は記録していません。
+            </p>
+            <button id="reload-verse-history" type="button">履歴を更新</button>
+            <div id="verse-history-list"></div>
+            <div class="pagination">
+              <button id="verse-history-prev" type="button">前へ</button
+              ><span id="verse-history-page"></span
+              ><button id="verse-history-next" type="button">次へ</button>
+            </div>
+          </div>
+        </section>
+        <section hidden="" id="admin-logs">
+          <div class="section-heading">
+            <h1>修正履歴</h1>
+            <button id="reload-logs">更新</button>
+          </div>
+          <div id="log-list"></div>
+        </section>
+        <section hidden="" id="admin-contacts">
+          <div class="section-heading">
+            <h1>お問い合わせ</h1>
+            <button id="reload-contacts">更新</button>
+          </div>
+          <div class="contact-filter">
+            <label
+              >対応状況<select id="contact-status-filter">
+                <option value="all">すべて</option>
+                <option value="new">未対応</option>
+                <option value="working">対応中</option>
+                <option value="done">対応済み</option>
+              </select></label
+            >
+          </div>
+          <div id="contact-list"></div>
+          <div class="pagination">
+            <button id="contact-prev">前へ</button
+            ><span id="contact-page"></span
+            ><button id="contact-next">次へ</button>
+          </div>
+        </section>
+        <section hidden="" id="admin-usage">
+          <div class="section-heading">
+            <h1>使用状況</h1>
+            <button id="reload-usage">使用状況を更新</button>
+          </div>
+          <p class="muted" id="usage-measured"></p>
+          <div class="usage-grid" id="usage-cards"></div>
+          <details class="usage-reference">
+            <summary>使用量の見方・無料枠について</summary>
+            <p class="muted">
+              無料枠の参考値：DB 500MB／Storage 1GB／Egress 5GB・Cached Egress
+              5GB／月間アクティブユーザー
+              50,000。APIリクエスト数には無料枠の固定上限はありません。実測値と月間の課金対象使用量は区別して確認してください。
+            </p>
+            <a
+              class="dashboard-link"
+              href="https://supabase.com/pricing"
+              rel="noopener noreferrer"
+              target="_blank"
+              >無料プランの公式上限 ↗</a
+            >
+          </details>
+          <article class="usage-panel">
+            <div class="section-heading">
+              <h2>詳しい使用状況</h2>
+              <button id="reload-usage-details">詳細を確認</button>
+            </div>
+            <p id="usage-details-message" role="status">
+              必要なときだけ詳細を取得します。
+            </p>
+            <div class="usage-grid" id="usage-detail-cards"></div>
+            <div class="usage-grid" id="usage-detail-stats"></div>
+            <p class="muted" id="usage-detail-period"></p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>テーブル</th>
+                    <th>合計</th>
+                    <th>本体等</th>
+                    <th>索引</th>
+                    <th>推定有効行</th>
+                    <th>推定不要行</th>
+                    <th>最終自動整理</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-detail-tables"></tbody>
+              </table>
+            </div>
+            <div hidden="" id="usage-detail-cron"></div>
+            <h3 hidden="">非同期HTTPの保存済み結果</h3>
+            <div class="usage-grid" hidden="" id="usage-detail-http"></div>
+            <p class="muted">
+              公式カード情報のネットワーク取得は行いません。DB統計は必要なときだけ取得します。
+            </p>
+          </article>
+
+          <article class="usage-panel">
+            <h2>DB処理・通信の状況</h2>
+            <button id="reload-traffic">DB統計を確認</button>
+            <p id="traffic-message" role="status"></p>
+            <div class="usage-grid" id="traffic-totals"></div>
+            <div class="usage-grid" id="traffic-chart"></div>
+            <p class="muted">
+              DB統計は累計値です。DB発HTTPは保持中の応答のみで、サイト全体の通信件数・転送量ではありません。
+            </p>
+            <a
+              class="dashboard-link"
+              id="supabase-usage-link"
+              rel="noopener noreferrer"
+              target="_blank"
+              >Supabaseで転送量・使用量を確認 ↗</a
+            >
+          </article>
+          <article class="usage-panel">
+            <h2>テーブル別の容量</h2>
+            <p class="muted">
+              テーブル本体・インデックスなどの合計です。行数は統計上の推定値です。
+            </p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>テーブル</th>
+                    <th>容量</th>
+                    <th>推定行数</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-tables"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+        <section id="admin-announcements" hidden="">
+          <div class="section-heading">
+            <h1>お知らせ・更新情報</h1>
+            <div>
+              <button id="announcement-refresh">更新</button
+              ><button id="announcement-add" class="primary">＋ 追加</button>
+            </div>
+          </div>
+          <p class="muted">公開中の内容をアルバム選択画面に表示します。</p>
+          <div class="announcement-tabs" role="group" aria-label="掲載先">
+            <button
+              type="button"
+              data-announcement-kind="notice"
+              aria-pressed="true"
+            >
+              お知らせ</button
+            ><button
+              type="button"
+              data-announcement-kind="update"
+              aria-pressed="false"
+            >
+              更新情報
+            </button>
+          </div>
+          <div id="announcement-list"></div>
+          <p id="announcement-message" role="status"></p>
+          <div class="pagination">
+            <button id="announcement-prev">前へ</button
+            ><button id="announcement-next">次へ</button>
+          </div>
+        </section>
+        <p id="admin-message" role="status"></p>
+        <section id="admin-operations" hidden="">
+          <div class="section-heading">
+            <h1>運営管理</h1>
+            <button type="button" id="reload-operations">状態を更新</button>
+          </div>
+          <p class="muted">一般サイトの運用と、新規登録の受付を管理します。</p>
+          <div class="operations-grid">
+            <article class="usage-panel">
+              <h2>メンテナンス</h2>
+              <p
+                class="registration-state"
+                id="maintenance-state"
+                role="status"
+              >
+                状態を確認中…
+              </p>
+              <p class="muted">
+                ON／OFFを選び、「設定を保存」を押すと反映されます。
+              </p>
+              <form id="maintenance-controls">
+                <label class="registration-toggle"
+                  ><input
+                    id="maintenance-enabled"
+                    type="checkbox"
+                  />メンテナンスモードを有効にする</label
+                >
+                <label
+                  >案内文<textarea
+                    id="maintenance-admin-message"
+                    maxlength="500"
+                    rows="3"
+                    required=""
+                  >
+ただ今システムのメンテナンスをしていますので、アルバムを開けません。</textarea>
+                </label>
+                <label
+                  >終了予定（日本時間・空欄は未定）<input
+                    id="maintenance-ends-at"
+                    type="datetime-local"
+                /></label>
+                <p class="muted">
+                  一般サイトのログイン・新規作成・カード登録を停止します。ログイン済みの利用者は次のDB通信でログアウトします。管理者画面は利用できます。終了予定を過ぎても自動解除はしません。
+                </p>
+                <button class="primary" id="maintenance-save">
+                  設定を保存
+                </button>
+                <button
+                  class="primary"
+                  hidden=""
+                  id="maintenance-stop"
+                  type="button"
+                >
+                  メンテナンスを解除して通常運用に戻す
+                </button>
+                <p id="maintenance-save-message" role="status"></p>
+              </form>
+            </article>
+            <article class="usage-panel">
+              <h2>新規登録の受付</h2>
+              <p class="registration-state" id="registration-state"></p>
+              <form id="registration-controls">
+                <label class="registration-toggle"
+                  ><input
+                    id="registration-enabled"
+                    type="checkbox"
+                  />新規登録を受け付ける</label
+                >
+                <label
+                  >停止中の案内<textarea
+                    id="registration-message"
+                    maxlength="200"
+                    required=""
+                    rows="3"
+                  ></textarea>
+                </label>
+                <label
+                  >DB容量による自動停止基準（MB）<input
+                    id="registration-db-limit"
+                    max="1048576"
+                    min="1"
+                    placeholder="設定しない場合は空欄"
+                    step="1"
+                    type="number"
+                /></label>
+                <p class="muted">
+                  設定した容量以上になると新規登録を停止します。ログインと既存アルバムの利用は継続できます。契約プランの上限とは別の、運営上の停止基準です。
+                </p>
+                <button id="registration-free-preset" type="button">
+                  無料枠の90％（450MB）を停止基準にする
+                </button>
+                <button class="primary" id="registration-save">
+                  設定を保存
+                </button>
+                <p id="registration-save-message" role="status"></p>
+              </form>
+            </article>
+            <article class="usage-panel">
+              <div class="section-heading"><h2>フォロワー向けの招待</h2><button type="button" id="invitation-reload">更新</button></div>
+              <p class="muted">Xでのフォローを確認してから、1人につき1つ発行してください。通常受付の停止中も登録できます。URLは一度開くと使用済みになります。</p>
+              <p class="muted">再読み込み・再アクセスで再開できません。招待URLの再発行はいたしかねます。</p>
+              <form id="invitation-create"><label>URLの有効期限（日）<input id="invitation-days" type="number" min="1" max="30" value="7" required></label><label class="invitation-follow"><input id="invitation-follow-confirm" type="checkbox" required>招待する方のフォローを確認しました</label><button class="primary" id="invitation-issue">招待URLを発行</button></form>
+              <div id="invitation-result" hidden><label>発行した招待URL<input id="invitation-url" type="text" readonly autocomplete="off" spellcheck="false"></label><button type="button" id="invitation-copy">コピー</button><p class="muted">この画面を閉じるとURLは再表示できません。相手に送る前に、このURLを開かないでください。</p></div>
+              <p role="status" id="invitation-message"></p>
+              <div id="invitation-list" class="muted">「更新」で直近100件の状態を確認できます。</div>
+            </article>
+          </div>
+        </section>
+        <section id="admin-verse" hidden="">
+          <div class="section-heading">
+            <h1>コーデ情報の修正</h1>
+            <div class="heading-actions">
+              <button type="button" id="reload-verse">
+                登録情報を再読み込み
+              </button>
+            </div>
+          </div>
+          <p>
+            手動SQLで登録したコーデ・パーツ情報を修正します。所持記録のIDは維持されます。
+          </p>
+          <div class="search-row verse-search-row">
+            <input
+              id="verse-admin-query"
+              type="search"
+              aria-label="コーデ名・コードで検索"
+              placeholder="コーデ名・コードで検索"
+            /><select id="verse-admin-family" aria-label="シリーズ">
+              <option value="all">すべて</option>
+              <option value="onegai">おねがいアイプリバース</option>
+              <option value="primagi">プリマジ</option><option value="himitsu">ひみつのアイプリバース</option></select
+            ><button type="button" id="verse-admin-search">検索</button>
+          </div>
+          <p class="muted" id="verse-admin-status" role="status"></p>
+          <div id="verse-admin-list" class="admin-card-list"></div>
+          <div class="pagination">
+            <button id="verse-admin-prev" type="button">前へ</button
+            ><span id="verse-admin-page"></span
+            ><button id="verse-admin-next" type="button">次へ</button>
+          </div>
+        </section>
+      </section>
+    </main>
+    <dialog aria-labelledby="edit-title" id="edit-dialog">
+      <form id="edit-form">
+        <div class="section-heading">
+          <h2 id="edit-title">カード情報を編集</h2>
+          <button aria-label="閉じる" id="edit-close" type="button">×</button>
+        </div>
+        <p class="muted" id="edit-id"></p>
+        <div class="editor-preview">
+          <img alt="カード表面" id="edit-image" />
+          <div class="edit-fields" id="edit-fields"></div>
+        </div>
+        <p id="edit-message" role="status"></p>
+        <div class="editor-actions">
+          <button id="override-remove" type="button">修正を解除</button
+          ><button class="primary" id="edit-save">修正を保存</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="confirm-dialog">
+      <h2>修正を解除しますか？</h2>
+      <p>手動SQLで登録した元の情報に戻ります。所持記録は保持します。</p>
+      <div class="editor-actions">
+        <button id="confirm-cancel">戻る</button
+        ><button class="danger" id="confirm-remove">解除する</button>
+      </div>
+    </dialog>
+    <dialog aria-labelledby="delete-user-title" id="delete-user-dialog">
+      <div class="section-heading">
+        <h2 id="delete-user-title">アカウントを強制削除</h2>
+        <button aria-label="閉じる" id="delete-user-close">×</button>
+      </div>
+      <p id="delete-user-label"></p>
+      <p>
+        アカウント、所持記録、読み取り結果、関連するお問い合わせを削除します。元には戻せません。削除済みのアルバムIDは再利用できません。
+      </p>
+      <label class="delete-ack"
+        ><input
+          id="delete-user-ack"
+          type="checkbox"
+        />削除するアカウントを確認しました</label
+      >
+      <p id="delete-user-message" role="status"></p>
+      <div class="editor-actions">
+        <button id="delete-user-cancel">キャンセル</button
+        ><button class="danger" disabled="" id="delete-user-confirm">
+          全情報を削除する
+        </button>
+      </div>
+    </dialog>
+
+    <dialog id="pending-dialog" aria-labelledby="pending-title">
+      <form id="pending-form">
+        <div class="section-heading">
+          <h2 id="pending-title">保留カード</h2>
+          <button id="pending-close" type="button" aria-label="閉じる">
+            ×
+          </button>
+        </div>
+        <p class="muted">
+          カード本体がまだ登録されておらず、登録に人間の確認が必要な候補です。根拠と対象カードを照合してください。
+        </p>
+        <p id="pending-target" class="pending-badge"></p>
+        <p id="pending-reason" class="pending-review-reason"></p>
+        <div class="edit-fields pending-fields">
+          <label
+            >作品<select id="pending-game">
+              <option value="aipri">アイプリ</option>
+              <option value="aikatsu">アイカツ！アンコール</option>
+            </select></label
+          ><label
+            >ひみつ・おねがい（アイプリ）<select id="pending-family">
+              <option>おねがい</option>
+              <option>ひみつ</option>
+            </select></label
+          >
+        </div>
+        <div class="edit-fields pending-fields" id="pending-fields"></div>
+        <label class="pending-note-label"
+          >保留理由・管理メモ（一般非公開）<textarea
+            id="pending-note"
+            rows="3"
+            maxlength="3000"
+          ></textarea>
+        </label>
+        <label class="pending-note-label"
+          >確認した根拠URL<input
+            id="pending-evidence-url"
+            type="url"
+            placeholder="https://"
+            maxlength="2000" /></label
+        ><label class="pending-note-label"
+          >根拠のどの記載・画像を確認したか<textarea
+            id="pending-evidence-note"
+            rows="2"
+            maxlength="2000"
+          ></textarea></label
+        ><label class="pending-allow"
+          ><input
+            id="pending-incomplete"
+            type="checkbox"
+          />根拠の記載・画像と対象カードを照合しました</label
+        >
+        <p class="muted">
+          曲名や裏面などの情報不足は登録済み一覧の「情報未登録」で確認できます。ここでは未登録カードだけを扱います。
+        </p>
+        <p id="pending-message" role="status"></p>
+        <div class="editor-actions">
+          <button id="pending-save" type="submit">保留保存</button
+          ><button id="pending-publish" class="primary" type="button">
+            正式登録へ
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="pending-confirm-dialog" aria-labelledby="pending-confirm-title">
+      <h2 id="pending-confirm-title">一般側に正式登録しますか？</h2>
+      <p id="pending-confirm-name"></p>
+      <p class="muted">
+        確認した未登録カードを一覧に追加します。登録済みのカードは上書きしません。
+      </p>
+      <p id="pending-confirm-message" role="status"></p>
+      <div class="editor-actions">
+        <button id="pending-confirm-cancel">戻る</button
+        ><button class="primary" id="pending-confirm-register">
+          正式登録する
+        </button>
+      </div>
+    </dialog>
+    <dialog
+      id="announcement-dialog"
+      aria-labelledby="announcement-editor-title"
+    >
+      <form id="announcement-form">
+        <div class="section-heading">
+          <h2 id="announcement-editor-title">掲載情報を追加</h2>
+          <button id="announcement-close" type="button" aria-label="閉じる">
+            ×
+          </button>
+        </div>
+        <div class="announcement-fields">
+          <label
+            >掲載先<select id="announcement-kind">
+              <option value="notice">お知らせ</option>
+              <option value="update">更新情報</option>
+            </select></label
+          ><label
+            >掲載日時（日本時間）<input
+              type="datetime-local"
+              step="1"
+              id="announcement-posted-at"
+              required="" /></label
+          ><label
+            >タイトル<input
+              id="announcement-title"
+              type="text"
+              maxlength="120"
+              required="" /></label
+          ><label
+            >本文<textarea
+              id="announcement-body"
+              rows="7"
+              maxlength="4000"
+              required=""
+            ></textarea></label
+          ><label class="announcement-public"
+            ><input
+              id="announcement-important"
+              type="checkbox"
+            />重要タグを付ける</label
+          ><label class="announcement-public"
+            ><input
+              id="announcement-published"
+              type="checkbox"
+              checked=""
+            />一般側に公開する</label
+          >
+        </div>
+        <p id="announcement-save-message" role="status"></p>
+        <div class="editor-actions">
+          <button id="announcement-save" class="primary" type="submit">
+            保存する
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog
+      id="announcement-delete-dialog"
+      aria-labelledby="announcement-delete-title"
+    >
+      <h2 id="announcement-delete-title">掲載情報を削除しますか？</h2>
+      <p id="announcement-delete-name"></p>
+      <p class="muted">一般側の掲載も終了します。</p>
+      <p id="announcement-delete-message" role="status"></p>
+      <div class="editor-actions">
+        <button id="announcement-delete-cancel">戻る</button
+        ><button id="announcement-delete-confirm" class="danger">
+          削除する
+        </button>
+      </div>
+    </dialog>
+
+    <dialog id="verse-editor-dialog" aria-labelledby="verse-editor-title">
+      <form id="verse-editor-form">
+        <div class="section-heading">
+          <h2 id="verse-editor-title">コーデを編集</h2>
+          <button type="button" id="verse-editor-close" aria-label="閉じる">
+            ×
+          </button>
+        </div>
+        <p class="muted">
+          構成パーツはほかのコーデでも共有されている場合があります。IDと構成は維持して保存します。
+        </p>
+        <div id="verse-editor-fields"></div>
+        <p id="verse-editor-status" role="status"></p>
+        <div class="editor-actions">
+          <button type="submit" id="verse-editor-save" class="primary">
+            変更を保存
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="contact-delete-dialog" aria-labelledby="contact-delete-title">
+      <h2 id="contact-delete-title">対応済みのお問い合わせを削除</h2>
+      <p>
+        このお問い合わせと返信を完全に削除します。返信は本人のお知らせからも削除されます。元には戻せません。
+      </p>
+      <p id="contact-delete-status" role="status"></p>
+      <div class="editor-actions">
+        <button type="button" id="contact-delete-cancel">キャンセル</button
+        ><button
+          type="button"
+          id="contact-delete-confirm"
+          class="danger-button"
+        >
+          削除する
+        </button>
+      </div>
+    </dialog>
+    <div id="admin-warning" class="admin-warning" role="alert" hidden=""></div>
+
+    <dialog id="contact-reply-dialog" aria-labelledby="contact-reply-title">
+      <form id="contact-reply-form">
+        <div class="section-heading">
+          <h2 id="contact-reply-title">お問い合わせへの返信</h2>
+          <button id="contact-reply-close" type="button" aria-label="閉じる">
+            ×
+          </button>
+        </div>
+        <p id="contact-reply-reference" class="contact-id"></p>
+        <p>
+          問い合わせた本人のお知らせに、タイトル「お問い合わせへの返信」・タグ「返信」で表示します。
+        </p>
+        <label
+          >返信内容<textarea
+            id="contact-reply-body"
+            rows="8"
+            maxlength="4000"
+            required
+          ></textarea>
+        </label>
+        <p id="contact-reply-status" role="status" aria-live="polite"></p>
+        <div class="editor-actions">
+          <button id="contact-reply-save" class="primary" type="submit">
+            返信を送信</button
+          ><button
+            id="contact-reply-delete"
+            class="danger-button"
+            type="button"
+            hidden
+          >
+            返信を削除
+          </button>
+        </div>
+      </form>
+      <div id="contact-reply-delete-confirm" hidden>
+        <p>
+          返信を削除すると、本人のお知らせからも削除されます。削除しますか？
+        </p>
+        <button type="button" id="contact-reply-delete-cancel">戻る</button
+        ><button
+          type="button"
+          id="contact-reply-delete-execute"
+          class="danger-button"
+        >
+          返信を削除する
+        </button>
+      </div>
+    </dialog>
+    <script
+      defer
+      src="./card-visibility-admin.js?v=20261029-invitation-v1"
+    ></script>
+    <script defer src="./private-qr-admin.js?v=20261029-invitation-v1"></script>
+  </body>
+</html>
