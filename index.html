@@ -6,30 +6,22 @@
     <meta content="noindex,nofollow" name="robots" />
     <title>カードアルバム管理</title>
     <link href="./icon.png" rel="icon" />
-    <link href="./admin.css?v=20261030-invite-notice-v1" rel="stylesheet" />
-    <script src="./startup.js?v=20261030-invite-notice-v1"></script>
+    <link href="./admin.css?v=20261030-admin-organize-v1" rel="stylesheet" />
+    <script src="./startup.js?v=20261030-admin-organize-v1"></script>
     <script
       defer=""
-      src="./vendor/supabase.js?v=20261030-invite-notice-v1"
+      src="./vendor/supabase.js?v=20261030-admin-organize-v1"
     ></script>
-    <script defer="" src="./config.js?v=20261030-invite-notice-v1"></script>
-    <script defer="" src="./catalog-cache.js?v=20261030-invite-notice-v1"></script>
-    <script defer src="./primagi.js?v=20261030-invite-notice-v1"></script>
-    <script defer="" src="./admin.js?v=20261030-invite-notice-v1"></script>
+    <script defer="" src="./config.js?v=20261030-admin-organize-v1"></script>
+    <script defer="" src="./catalog-cache.js?v=20261030-admin-organize-v1"></script>
+    <script defer src="./primagi.js?v=20261030-admin-organize-v1"></script>
+    <script defer src="./admin-workflow.js?v=20261030-admin-organize-v1"></script>
+    <script defer="" src="./admin.js?v=20261030-admin-organize-v1"></script>
     <link rel="apple-touch-icon" href="./icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="アルバム運営" />
     <meta name="theme-color" content="#8062a7" />
-  <style>#user-qr-range[hidden]{display:none!important}#user-qr-range input{font-size:16px;box-sizing:border-box}#user-qr-range{flex-wrap:wrap}
-#invitation-create{display:grid;gap:14px}
-#invitation-create .invitation-follow{display:flex;align-items:flex-start;gap:9px;font-size:14px;font-weight:400;line-height:1.6}
-#invitation-follow-confirm{width:18px;min-width:18px;height:18px;margin:3px 0 0;padding:0;flex:0 0 18px;accent-color:#b7658d}
-#invitation-result:not([hidden]){display:grid;gap:10px;margin-top:16px}
-#invitation-url{font-size:13px;font-weight:400}
-#invitation-message{overflow-wrap:anywhere}
-#invitation-list{font-size:12px;line-height:1.7}
-#invitation-create>button,#invitation-copy{justify-self:start}
-</style></head>
+  </head>
   <body>
     <header>
       <div class="admin-brand">
@@ -660,6 +652,7 @@
             <button type="button" id="reload-operations">状態を更新</button>
           </div>
           <p class="muted">一般サイトの運用と、新規登録の受付を管理します。</p>
+          <p id="operations-status" role="status" aria-live="polite"></p>
           <div class="operations-grid">
             <article class="usage-panel">
               <h2>メンテナンス</h2>
@@ -722,7 +715,7 @@
                 </select></label>
                 <p class="muted" id="registration-mode-help">招待のみ受付：新規登録画面に案内とXボタンを表示します。招待も停止：Xボタンを表示せず、招待URLからの登録と開始済みの招待登録の完了も停止します。</p>
                 <label
-                  >停止時のエラーメッセージ<textarea
+                  >受付停止時の案内文<textarea
                     id="registration-message"
                     maxlength="200"
                     required=""
@@ -742,7 +735,7 @@
                   設定した容量以上になると新規登録を停止します。ログインと既存アルバムの利用は継続できます。契約プランの上限とは別の、運営上の停止基準です。
                 </p>
                 <button id="registration-free-preset" type="button">
-                  無料枠の90％（450MB）を停止基準にする
+                  停止基準に450MBを入力
                 </button>
                 <button class="primary" id="registration-save" disabled>
                   設定を保存
@@ -752,7 +745,7 @@
             </article>
             <article class="usage-panel">
               <div class="section-heading"><h2>フォロワー向けの招待</h2><button type="button" id="invitation-reload">更新</button></div>
-              <p class="muted">Xでのフォローを確認してから、1人につき1つ発行してください。通常受付の停止中も登録できます。URLは一度開くと使用済みになります。</p>
+              <p class="muted">Xでのフォローを確認してから、1人につき1つ発行してください。「招待のみ受付」のときも登録できます。「招待も停止」では登録できません。URLは一度開くと使用済みになります。</p>
               <p class="muted">再読み込み・再アクセスで再開できません。招待URLの再発行はいたしかねます。</p>
               <form id="invitation-create"><label>URLの有効期限（日）<input id="invitation-days" type="number" min="1" max="30" value="7" required></label><label class="invitation-follow"><input id="invitation-follow-confirm" type="checkbox" required>招待する方のフォローを確認しました</label><button class="primary" id="invitation-issue">招待URLを発行</button></form>
               <div id="invitation-result" hidden><label>発行した招待URL<input id="invitation-url" type="text" readonly autocomplete="off" spellcheck="false"></label><button type="button" id="invitation-copy">コピー</button><p class="muted">この画面を閉じるとURLは再表示できません。相手に送る前に、このURLを開かないでください。</p></div>
@@ -1083,10 +1076,11 @@
         </button>
       </div>
     </dialog>
+    <script defer src="./admin-operations.js?v=20261030-admin-organize-v1"></script>
     <script
       defer
-      src="./card-visibility-admin.js?v=20261030-invite-notice-v1"
+      src="./card-visibility-admin.js?v=20261030-admin-organize-v1"
     ></script>
-    <script defer src="./private-qr-admin.js?v=20261030-invite-notice-v1"></script>
+    <script defer src="./private-qr-admin.js?v=20261030-admin-organize-v1"></script>
   </body>
 </html>

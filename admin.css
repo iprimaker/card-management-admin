@@ -2864,23 +2864,73 @@ tbody td {
 #contact-reply-delete-confirm{margin-top:16px;padding:14px;border:1px solid #e2a7ab;border-radius:10px}
 #contact-reply-delete-confirm[hidden]{display:none}
 
-/* 追加された公開設定ページの配置のみ補完 */
-.publishing-layout{display:grid;grid-template-columns:300px minmax(0,1fr);align-items:start;gap:22px}.publishing-list{background:white;border:1px solid var(--line);border-radius:12px;padding:17px;position:sticky;top:20px}.publishing-tabs{display:flex;gap:5px;margin-top:14px}.publishing-tabs button{flex:1;padding:8px 4px;min-height:35px;font-size:10px}.publishing-tabs button[aria-pressed=true]{background:var(--soft);border-color:#afd2d2;color:var(--accent)}.publishing-items{display:grid;gap:6px;max-height:62dvh;overflow:auto}.publishing-item{display:grid;gap:5px;text-align:left;padding:12px;border-color:transparent;min-height:84px;background:#f6f8fa}.publishing-item[aria-pressed=true]{border-color:var(--accent);background:var(--soft)}.publishing-item strong{font-size:12px;line-height:1.5}.publishing-item span{font-size:10px;color:var(--muted)}.publishing-item small{font-size:9px;color:var(--accent)}.publishing-editor{min-width:0;background:white;border:1px solid var(--line);border-radius:12px;padding:26px}.publishing-card-heading{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:22px}.publishing-card-heading h2{margin-top:10px;font-size:21px}.publishing-card-heading p{font-size:11px;margin:7px 0 0}.editor-section{margin-bottom:24px}.editor-section>p{font-size:11px;color:var(--muted);margin:8px 0 14px}.field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:14px}.visibility-options{display:grid;gap:9px;margin:14px 0 20px}.visibility-options label{display:flex;align-items:center;gap:12px;padding:13px;background:#f5f8fa;border:1px solid var(--line);border-radius:8px;cursor:pointer}.visibility-options label:has(input:checked){background:var(--soft);border-color:#b9d6d6}.visibility-options strong{display:block;font-size:12px}.visibility-options small{display:block;font-size:10px;font-weight:400}.visibility-preview{display:grid;place-items:center;text-align:center;background:linear-gradient(145deg,#edf6f6,#f6f2fb);padding:26px 20px;border:1px dashed #c2d3d9;border-radius:10px;margin-top:12px}.visibility-preview strong{font-size:14px}.visibility-preview p{font-size:11px;color:var(--muted);max-width:290px}.evidence-panel{border-block:1px solid var(--line);padding:6px 0;margin-bottom:20px}.evidence-panel p{font-size:11px;overflow-wrap:anywhere}.publishing-save{display:flex;flex-wrap:wrap;gap:10px;border-top:1px solid var(--line);padding-top:18px}
-.admin-brand{display:flex;align-items:center;gap:10px}.admin-brand-mark svg{width:30px;height:30px}.admin-brand-text{display:flex;flex-direction:column}.admin-brand-text small{font-size:11px}.home-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.home-actions button{display:flex;flex-direction:column;align-items:flex-start;gap:9px;padding:20px;text-align:left}.home-symbol{display:none}.home-actions button>span:last-child{font-size:12px;font-weight:normal}.workspace-welcome{margin-bottom:24px}.eyebrow{display:none}.publishing-save{display:flex;gap:10px;flex-wrap:wrap}.publishing-explanation{padding:12px;background:#f4f0fa;border-radius:10px;font-size:13px}.visibility-preview p{margin:0}.publishing-item[aria-pressed=true]{border-color:var(--accent)}
-@media(max-width:800px){.publishing-layout{grid-template-columns:1fr}.publishing-list{position:static}.publishing-items{max-height:260px}.publishing-editor{padding:18px}.field-grid{grid-template-columns:1fr}.home-actions{grid-template-columns:1fr}}
-/* 公開設定・承認：従来の管理画面に合わせた専用ページ */
-#admin-visibility{max-width:1200px;margin:0 auto;color:#363045}
-#admin-visibility>.section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
-#admin-visibility h1{font-size:24px;margin:0 0 8px}#admin-visibility>.section-heading p{font-size:13px;color:#81768b;margin:0}
-#admin-visibility .publishing-layout{display:grid;grid-template-columns:285px minmax(0,1fr);gap:20px;align-items:start}
-#admin-visibility .publishing-list{position:sticky;top:20px;background:white;border:1px solid var(--line);border-radius:14px;padding:16px}
-#admin-visibility label{font-size:12px;line-height:1.65}#admin-visibility input:not([type=checkbox]),#admin-visibility select{width:100%;min-height:42px;padding:10px;border:1px solid var(--line);border-radius:8px;background:white;font:inherit;box-sizing:border-box}
-#admin-visibility .publishing-tabs{display:flex;gap:4px;background:#f6f3fa;padding:4px;border-radius:9px;margin:14px 0 8px}#admin-visibility .publishing-tabs button{flex:1;min-width:0;font-size:11px;padding:8px 3px;border:0;background:transparent;border-radius:6px}#admin-visibility .publishing-tabs button[aria-pressed=true]{background:#fff;color:var(--accent);box-shadow:0 1px 5px #49366212}
-#admin-visibility [data-count]{font-size:11px;margin:10px 0;color:#81768b}#admin-visibility .publishing-items{display:grid;gap:7px;max-height:62vh;overflow:auto}
-#admin-visibility .publishing-item{min-height:75px;padding:12px;text-align:left;display:grid;gap:4px;background:#faf9fc;border:1px solid transparent;border-radius:9px}#admin-visibility .publishing-item[aria-pressed=true]{border-color:#b49bce;background:#f4eefb}#admin-visibility .publishing-item strong{font-size:12px;line-height:1.5}#admin-visibility .publishing-item small{font-size:10px;color:var(--accent)}#admin-visibility .publishing-item span{font-size:10px;color:#81768b}
-#admin-visibility .publishing-editor{background:white;padding:26px;border:1px solid var(--line);border-radius:14px;min-width:0}#admin-visibility .empty-state{padding:65px 15px;text-align:center;color:#81768b;font-size:13px;line-height:1.8}
-#admin-visibility .publishing-card-heading{padding-bottom:20px;margin-bottom:22px;border-bottom:1px solid var(--line)}#admin-visibility [data-name]{font-size:20px;margin:10px 0 7px;line-height:1.6}#admin-visibility [data-code]{font-size:11px;margin:0;color:#81768b}#admin-visibility .status-chip{display:inline-block;background:#f2ecf9;color:#7959a5;font-size:11px;border-radius:6px;padding:5px 8px}
-#admin-visibility .editor-section{margin-bottom:24px}#admin-visibility h3{font-size:14px;margin:0 0 10px}#admin-visibility .editor-section>p{font-size:12px;color:#81768b;line-height:1.8}#admin-visibility .field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}#admin-visibility .field-grid label{display:grid;gap:7px}
-#admin-visibility .visibility-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-bottom:16px}#admin-visibility .visibility-options label{display:flex;align-items:flex-start;gap:8px;background:#faf9fc;border:1px solid var(--line);border-radius:9px;padding:12px;cursor:pointer}#admin-visibility .visibility-options input{width:16px;height:16px;margin:3px 0;flex:none;accent-color:var(--accent)}#admin-visibility .visibility-options label:has(:checked){background:#f5effb;border-color:#c7b4dc}#admin-visibility .visibility-options strong{font-size:12px;display:block}#admin-visibility .visibility-options small{font-size:10px;display:block;line-height:1.6;color:#81768b}
-#admin-visibility .visibility-preview{background:#faf8fd;border:1px dashed #d5c7e3;border-radius:10px;padding:22px;text-align:center;font-size:13px;line-height:1.9}#admin-visibility .evidence-panel{border-block:1px solid var(--line);padding:13px 0;font-size:12px;line-height:1.8;overflow-wrap:anywhere}#admin-visibility .evidence-panel summary{cursor:pointer;color:#81768b}#admin-visibility .publishing-explanation{background:#f7f3fb;padding:13px;border-radius:9px;font-size:12px;line-height:1.8;margin:18px 0}#admin-visibility .publishing-save{display:flex;gap:9px;flex-wrap:wrap;padding-top:16px;border-top:1px solid var(--line)}#admin-visibility .publishing-save button{min-height:40px;font-size:12px}#admin-visibility [data-release]{margin-left:auto}#admin-visibility [data-save-status]{font-size:12px;line-height:1.7}
-@media(max-width:800px){#admin-visibility .publishing-layout{grid-template-columns:1fr}#admin-visibility .publishing-list{position:static}#admin-visibility .publishing-items{max-height:230px;grid-template-columns:repeat(2,minmax(0,1fr))}#admin-visibility .publishing-editor{padding:18px}#admin-visibility .field-grid{grid-template-columns:1fr}#admin-visibility .visibility-options{grid-template-columns:1fr}#admin-visibility .visibility-options small{font-size:11px}#admin-visibility .publishing-save button{flex:1 1 160px}#admin-visibility [data-release]{margin-left:0}#admin-visibility h1{font-size:21px}#admin-visibility>.section-heading{align-items:flex-start;flex-wrap:wrap}#admin-visibility input:not([type=checkbox]),#admin-visibility select{font-size:16px}}
+
+/* 旧HTML内の局所スタイルを集約 */
+#user-qr-range[hidden]{display:none!important}#user-qr-range input{font-size:16px;box-sizing:border-box}#user-qr-range{flex-wrap:wrap}
+#invitation-create{display:grid;gap:14px}
+#invitation-create .invitation-follow{display:flex;align-items:flex-start;gap:9px;font-size:14px;font-weight:400;line-height:1.6}
+#invitation-follow-confirm{width:18px;min-width:18px;height:18px;margin:3px 0 0;padding:0;flex:0 0 18px;accent-color:#b7658d}
+#invitation-result:not([hidden]){display:grid;gap:10px;margin-top:16px}
+#invitation-url{font-size:13px;font-weight:400}
+#invitation-message{overflow-wrap:anywhere}
+#invitation-list{font-size:12px;line-height:1.7}
+#invitation-create>button,#invitation-copy{justify-self:start}
+
+/* 公開設定・承認：一覧と編集を一つのページで管理 */
+#admin-visibility .publishing-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:20px;align-items:start}
+#admin-visibility .publishing-list,#admin-visibility .publishing-editor{min-width:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px}
+#admin-visibility .publishing-list{position:sticky;top:20px;padding:16px}
+#admin-visibility .publishing-list>label{display:grid;gap:7px;margin-bottom:12px;font-size:12px}
+#admin-visibility .publishing-tabs{display:flex;gap:4px;background:#f6f3fa;padding:4px;border-radius:9px;margin:14px 0}
+#admin-visibility .publishing-tabs button{flex:1;min-width:0;padding:9px 3px;font-size:11px;border:0;background:transparent}
+#admin-visibility .publishing-tabs button[aria-pressed=true]{background:#fff;color:var(--accent);box-shadow:0 1px 4px #49366212}
+#admin-visibility .publishing-items{display:grid;gap:6px;max-height:58vh;overflow:auto}
+#admin-visibility .publishing-item{min-height:76px;display:grid;gap:4px;text-align:left;padding:11px;background:#faf9fc;border:1px solid transparent;border-radius:8px;overflow-wrap:anywhere}
+#admin-visibility .publishing-item[aria-pressed=true]{background:#f4eefb;border-color:#b49bce}
+#admin-visibility .publishing-item strong{font-size:12px;line-height:1.6}
+#admin-visibility .publishing-item small,#admin-visibility .publishing-item span{font-size:10px;color:var(--muted)}
+#admin-visibility .publishing-item small{color:var(--accent)}
+#admin-visibility .publishing-card-heading{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:24px}
+#admin-visibility .publishing-card-heading h2{font-size:20px;line-height:1.6;overflow-wrap:anywhere;margin:12px 0 6px}
+#admin-visibility [data-code],#admin-visibility [data-count],#admin-visibility [data-status],#admin-visibility [data-save-status]{font-size:12px;overflow-wrap:anywhere}
+#admin-visibility .status-chip{display:inline-block;background:#f2ecf9;color:#7959a5;border-radius:6px;padding:5px 9px;font-size:11px}
+#admin-visibility .empty-state{padding:36px 12px;text-align:center;color:var(--muted);font-size:13px}
+#admin-visibility .editor-section{margin-bottom:26px}
+#admin-visibility .editor-section h3{font-size:14px;margin:0 0 10px}
+#admin-visibility .editor-section>p{font-size:12px;color:var(--muted);line-height:1.8}
+#admin-visibility .field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+#admin-visibility .field-grid label{display:grid;gap:7px}
+#admin-visibility .visibility-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:18px}
+#admin-visibility .visibility-options label{display:flex;align-items:flex-start;gap:8px;padding:12px;background:#faf9fc;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+#admin-visibility .visibility-options label:has(:checked){background:#f5effb;border-color:#c7b4dc}
+#admin-visibility .visibility-options input{width:16px;height:16px;flex:none;margin:3px 0;accent-color:var(--accent)}
+#admin-visibility .visibility-options strong{display:block;font-size:12px}
+#admin-visibility .visibility-options small{display:block;font-size:10px;font-weight:400;line-height:1.6;color:var(--muted)}
+#admin-visibility .visibility-preview{padding:20px;background:#faf8fd;border:1px dashed #d5c7e3;border-radius:9px;font-size:13px;line-height:1.8}
+#admin-visibility .visibility-preview p{margin:0}
+#admin-visibility .evidence-panel{border-block:1px solid var(--line);padding:12px 0;margin-bottom:20px;font-size:12px;overflow-wrap:anywhere}
+#admin-visibility .evidence-panel summary{cursor:pointer}
+#admin-visibility .publishing-explanation{font-size:12px;color:var(--muted);line-height:1.8}
+#admin-visibility .publishing-save{display:flex;flex-wrap:wrap;gap:10px;border-top:1px solid var(--line);padding-top:16px}
+#admin-operations .invitation-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+#admin-operations .usage-panel{min-width:0}
+#operations-status{font-size:12px;line-height:1.7}
+@media(max-width:800px){
+ #admin-visibility .publishing-layout{grid-template-columns:1fr}
+ #admin-visibility .publishing-list{position:static}
+ #admin-visibility .publishing-items{max-height:230px;grid-template-columns:repeat(2,minmax(0,1fr))}
+ #admin-visibility .publishing-editor{padding:18px}
+ #admin-visibility .field-grid,#admin-visibility .visibility-options{grid-template-columns:1fr}
+ #admin-visibility .visibility-options small{font-size:11px}
+ #admin-visibility .publishing-save button{flex:1 1 160px}
+ #admin-visibility input:not([type=checkbox]),#admin-visibility select{font-size:16px;max-width:100%;min-width:0}
+ #admin-visibility>.section-heading{align-items:flex-start;flex-wrap:wrap}
+ #admin-visibility h1{font-size:21px}
+ #admin-operations input:not([type=checkbox]),#admin-operations select,#admin-operations textarea{font-size:16px}
+}
+#admin-visibility>.publishing-explanation{margin:0 0 18px;font-size:12px;line-height:1.8;color:var(--muted)}
+#admin-visibility>.publishing-explanation button{font-size:12px;padding:3px 7px;margin:0 4px;min-height:30px}
+[data-qr-global] .invitation-follow{display:flex;align-items:center;gap:9px}
+[data-qr-global] .invitation-follow input{width:18px;height:18px;margin:0;flex:none;accent-color:var(--accent)}
+[data-qr-global] .section-heading{align-items:center;flex-wrap:wrap}
+[data-qr-global] .section-heading h2{margin:0}

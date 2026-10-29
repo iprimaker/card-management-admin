@@ -59,7 +59,7 @@
       const path=requestURL.pathname;
       const name=decodeURIComponent(path.split("/").pop());
       const privateRequest=requestURL.origin===new URL(config.supabaseUrl).origin && path.startsWith("/rest/v1/") &&
-        ((/^card_admin_/.test(name) && name!=="card_admin_mfa_identity") || name==="card_account_presence_touch");
+        ((/^card_admin_/.test(name) && name!=="card_admin_mfa_identity") || /^card_visibility_admin_/.test(name) || /^card_qr_admin_/.test(name) || name==="card_account_presence_touch");
       if(privateRequest && !session)return Response.json({code:"PGRST301",message:"ログインし直してください。"},{status:401});
       const requestGeneration=privateRequest?generation:null,requestUser=privateRequest?session?.user?.id:null;
       const stillCurrent=()=>!privateRequest || (generation===requestGeneration && session?.user?.id===requestUser);
@@ -184,6 +184,8 @@
       $("admin-message").textContent = text;
     };
     function hidePrivateData() {
+      document.dispatchEvent(new Event("admin-session-reset"));
+      invalidateUsage();
       for(const controller of adminPrivateRequests)controller.abort();
       adminPrivateRequests.clear();
       clearMfaPanel();
@@ -1911,6 +1913,7 @@
 
     function showPage(page) {
       if (!requireAdminAction()) return;
+      if (!document.dispatchEvent(new CustomEvent("admin-page-before-change", { cancelable: true, detail: { page } }))) return false;
       history.replaceState(null, "", "#" + page);
       for (const id of [
         "visibility",
@@ -1927,7 +1930,11 @@
         $("admin-" + id).hidden = id !== page;
       document
         .querySelectorAll("[data-page]")
-        .forEach((b) => b.classList.toggle("active", b.dataset.page === page));
+        .forEach((b) => {
+          b.classList.toggle("active", b.dataset.page === page);
+          if (b.dataset.page === page) b.setAttribute("aria-current", "page");
+          else b.removeAttribute("aria-current");
+        });
       message("");
       clearInterval(syncProgressTimer);
       if (page === "cards") {
@@ -1940,7 +1947,7 @@
       if (page === "users") loadUsers();
       if (page === "logs") loadLogs();
       if (page === "contacts") loadContacts();
-      if (page === "usage" || page === "operations") loadUsage();
+      if (page === "usage") loadUsage();
       if (page === "verse") loadVerseAdmin();
       document.dispatchEvent(new CustomEvent("admin-page-changed", { detail: { page } }));
     }
@@ -2439,52 +2446,40 @@
         percent >= 90 ? "quota-danger" : percent >= 80 ? "quota-warning" : "";
       return `<div class="usage-metric ${tone}"><span>${esc(label)}</span><strong>${esc(formatBytes(value))}</strong><small>無料枠 ${esc(formatBytes(limit))} ／ ${percent.toFixed(1)}%</small><div class="quota-bar"><i style="width:${Math.min(100, percent)}%"></i></div></div>`;
     }
-    function showRegistrationStatus(status) {
-      $("registration-state").textContent = status.allowed
-        ? "通常登録を受付中"
-        : status.invitation_allowed === true ? "招待からのみ受付中" : "招待を含め新規登録を停止中";
-      $("registration-state").classList.toggle("paused", !status.allowed);
+    let usageFlight = null, usageEpoch = 0;
+    function invalidateUsage() {
+      usageSnapshot = null;
+      usageFetchedAt = 0;
+      usageEpoch++;
+      usageFlight = null;
     }
-    let maintenanceRevision = 0;
-    let latestMaintenanceStatus = null;
-    function showMaintenanceStatus(status) {
-      latestMaintenanceStatus = status;
-      $("maintenance-stop").hidden = status.maintenance !== true;
-      $("maintenance-enabled").checked = status.maintenance === true;
-      $("maintenance-admin-message").value =
-        status.message ||
-        "ただ今システムのメンテナンスをしていますので、アルバムを開けません。";
-      $("maintenance-ends-at").value = status.ends_at
-        ? new Date(new Date(status.ends_at).getTime() + 9 * 3600000)
-            .toISOString()
-            .slice(0, 16)
-        : "";
-      $("maintenance-state").textContent = status.maintenance
-        ? "メンテナンスON · 一般サイトの利用を停止中"
-        : "メンテナンスOFF · 通常の受付設定で運用中";
-      $("maintenance-state").classList.toggle(
-        "paused",
-        status.maintenance === true,
-      );
+    async function getUsageSnapshot() {
+      if (!authorized) throw Error("ログインしてください");
+      if (usageSnapshot && Date.now() - usageFetchedAt < 60000) return usageSnapshot;
+      if (usageFlight) return usageFlight;
+      const current = generation, epoch = usageEpoch;
+      const flight = (async () => {
+        const { data, error } = await db.rpc("card_admin_usage");
+        if (error) throw error;
+        if (!authorized || generation !== current || epoch !== usageEpoch)
+          throw Error("状態が更新されました。もう一度確認してください。");
+        usageSnapshot = data;
+        usageFetchedAt = Date.now();
+        return data;
+      })();
+      usageFlight = flight;
+      try { return await flight; }
+      finally { if (usageFlight === flight) usageFlight = null; }
     }
     async function loadUsage() {
       if (!authorized || usageBusy) return;
       usageBusy = true;
       const current = generation;
       $("reload-usage").disabled = true;
-      const maintenanceAtStart = maintenanceRevision;
       message("使用状況を確認中…");
       try {
-        const { data, error } =
-          usageSnapshot && Date.now() - usageFetchedAt < 60000
-            ? { data: usageSnapshot }
-            : await db.rpc("card_admin_usage");
-        if (error) throw error;
+        const data = await getUsageSnapshot();
         if (current !== generation || !authorized) return;
-        if (maintenanceAtStart !== maintenanceRevision) return;
-        if (data !== usageSnapshot) usageFetchedAt = Date.now();
-        usageSnapshot = data;
-        const settings = data.settings;
         $("usage-cards").innerHTML =
           quotaCard("DB全体の容量", data.database_bytes, 500000000) +
           quotaCard("ストレージ", data.storage_bytes, 1000000000) +
@@ -2503,22 +2498,6 @@
           );
         $("usage-measured").textContent =
           "確認日時：" + timestamp(data.measured_at);
-        const registrationResult = await db.rpc("card_album_registration_status_v2");
-        if (registrationResult.error || !["open", "invitation", "closed"].includes(registrationResult.data?.mode)) throw registrationResult.error || Error("受付方法を確認できませんでした。SQLの適用状況を確認してください。");
-        if (current !== generation || !authorized) return;
-        $("registration-mode").value = registrationResult.data.mode;
-        $("registration-mode").disabled = false;
-        $("registration-save").disabled = false;
-        $("registration-message").value = settings.pause_message;
-        $("registration-db-limit").value = settings.database_limit_bytes
-          ? Math.round(Number(settings.database_limit_bytes) / 1000000)
-          : "";
-        showMaintenanceStatus({
-          maintenance: settings.maintenance_enabled === true,
-          message: settings.maintenance_message,
-          ends_at: settings.maintenance_ends_at,
-        });
-        showRegistrationStatus(registrationResult.data);
         $("usage-tables").innerHTML = (data.tables || [])
           .map(
             (t) =>
@@ -2715,213 +2694,8 @@
     }
     $("reload-traffic").onclick = () => loadTraffic();
     $("reload-usage").onclick = () => {
-      usageSnapshot = null;
-      usageFetchedAt = 0;
+      invalidateUsage();
       return loadUsage();
-    };
-    let invitationBusy = false;
-    async function loadInvitations() {
-      if (!authorized || invitationBusy) return;
-      const current = generation;
-      invitationBusy = true;
-      $("invitation-reload").disabled = true;
-      try {
-        const {data,error} = await db.rpc("card_admin_invitation_list");
-        if (error) throw error;
-        if (current !== generation || !authorized) return;
-        if (!Array.isArray(data)) throw Error("招待一覧を確認できませんでした。");
-        $("invitation-list").replaceChildren();
-        if (!data.length) $("invitation-list").textContent = "発行した招待はありません。";
-        for (const row of data) {
-          const item = document.createElement("div");
-          item.style.cssText = "display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #e7e7e7;flex-wrap:wrap";
-          const text = document.createElement("span");
-          text.textContent = ({ready:"未使用",claimed:"手続き開始済み",completed:"登録完了",revoked:"無効",expired:"期限切れ"}[row.state] || "確認中") + " ／ 発行 " + timestamp(row.created_at) + " ／ 期限 " + timestamp(row.expires_at);
-          item.append(text);
-          if (["ready","claimed"].includes(row.state)) {
-            const button = document.createElement("button"); button.type="button"; button.textContent="無効にする";
-            button.onclick = async () => {
-              if (!authorized || current !== generation || !confirm("この招待URLを無効にします。開始済みの登録も完了できなくなります。")) return;
-              button.disabled=true;
-              try {
-                const response = await db.rpc("card_admin_invitation_revoke",{p_id:row.id});
-                if(response.error) throw response.error;
-                if(current === generation && authorized) await loadInvitations();
-              } catch(error) {if(current === generation && authorized) $("invitation-message").textContent=errorText(error);}
-              finally {button.disabled=false;}
-            };
-            item.append(button);
-          }
-          $("invitation-list").append(item);
-        }
-      } catch(error) {if(current === generation && authorized) $("invitation-message").textContent=errorText(error);}
-      finally {invitationBusy=false; $("invitation-reload").disabled=false;}
-    }
-    $("invitation-reload").onclick = loadInvitations;
-    $("invitation-copy").onclick = async () => {
-      if (!authorized || !$("invitation-url").value) return;
-      try {await navigator.clipboard.writeText($("invitation-url").value); $("invitation-message").textContent="招待URLをコピーしました。";}
-      catch {$("invitation-message").textContent="コピーできませんでした。URLを選択してコピーしてください。";}
-    };
-    $("invitation-create").onsubmit = async (event) => {
-      event.preventDefault();
-      if (!authorized || $("invitation-issue").disabled || !$("invitation-follow-confirm").checked) return;
-      const current=generation, days=Number($("invitation-days").value);
-      if(!Number.isInteger(days)||days<1||days>30)return;
-      if ($("invitation-url").value && !confirm("前の招待URLは再表示できなくなります。保存・コピー済みの場合だけ続けてください。")) return;
-      $("invitation-issue").disabled=true;
-      $("invitation-message").textContent="発行中…";
-      $("invitation-url").value=""; $("invitation-result").hidden=true;
-      try {
-        // 公開先を先に検証し、設定不備で使えないURLを発行しません。
-        const publicSiteUrl = String(config.publicSiteUrl || "").trim() || "https://iprimaker.github.io/card-management/";
-        const url=new URL(publicSiteUrl);
-        if(url.protocol!=="https:" && !["localhost","127.0.0.1"].includes(url.hostname)) throw Error("一般サイトのURLを確認してください。");
-        const {data,error}=await db.rpc("card_admin_invitation_create",{p_days:days});
-        if(error)throw error;
-        if(current!==generation||!authorized)return;
-        if(!/^[0-9a-f]{64}$/.test(data?.token||""))throw Error("招待URLを発行できませんでした。");
-        url.search="";url.searchParams.set("view","invite");url.hash="invite="+data.token;
-        $("invitation-url").value=url.href;$("invitation-result").hidden=false;
-        $("invitation-follow-confirm").checked=false;
-        $("invitation-message").textContent="招待URLを発行しました。有効期限："+timestamp(data.expires_at);
-        await loadInvitations();
-      } catch(error){if(current===generation&&authorized)$("invitation-message").textContent=errorText(error);}
-      finally {$("invitation-issue").disabled=false;}
-    };
-    $("registration-free-preset").onclick = () => {
-      $("registration-db-limit").value = "450";
-      $("registration-save-message").textContent =
-        "無料枠500MBの90％を停止基準に設定しました。保存すると反映されます。";
-    };
-    $("maintenance-stop").onclick = async () => {
-      if (!authorized || $("maintenance-save").disabled) return;
-      const current = generation;
-      const savedMessage = latestMaintenanceStatus?.message?.trim();
-      $("maintenance-save").disabled = true;
-      $("maintenance-stop").disabled = true;
-      $("maintenance-enabled").disabled = true;
-      $("maintenance-save-message").textContent = "メンテナンスを解除中…";
-      try {
-        // フォームの入力検証を通さず、保存済みの案内文で確実にOFFを指定。
-        const { data, error } = await db.rpc("card_admin_set_maintenance", {
-          p_enabled: false,
-          p_message:
-            savedMessage ||
-            "ただ今システムのメンテナンスをしていますので、アルバムを開けません。",
-          p_ends_at: null,
-        });
-        if (error) throw error;
-        if (current !== generation || !authorized) return;
-        if (!data || data.maintenance !== false) {
-          throw Error(
-            "解除結果を確認できませんでした。使用状況を再取得して確認してください。",
-          );
-        }
-        maintenanceRevision++;
-        usageSnapshot = null;
-        usageFetchedAt = 0;
-        showMaintenanceStatus(data);
-        $("maintenance-save-message").textContent =
-          "メンテナンスを解除しました。一般サイトで再びログインできます。";
-      } catch (error) {
-        if (current === generation && authorized) {
-          $("maintenance-save-message").textContent =
-            "解除に失敗しました：" + errorText(error);
-        }
-      } finally {
-        $("maintenance-save").disabled = false;
-        $("maintenance-stop").disabled = false;
-        $("maintenance-enabled").disabled = false;
-      }
-    };
-    $("maintenance-controls").onsubmit = async (event) => {
-      event.preventDefault();
-      if (!authorized || $("maintenance-save").disabled) return;
-      const text = $("maintenance-admin-message").value.trim();
-      const value = $("maintenance-ends-at").value;
-      const endsAt = value ? new Date(value + "+09:00") : null;
-      if (
-        !text ||
-        text.length > 500 ||
-        (endsAt && Number.isNaN(endsAt.getTime()))
-      ) {
-        $("maintenance-save-message").textContent =
-          "案内文・終了予定を確認してください。";
-        return;
-      }
-      const enabled = $("maintenance-enabled").checked;
-      const current = generation;
-      $("maintenance-save").disabled = true;
-      $("maintenance-enabled").disabled = true;
-      $("maintenance-save-message").textContent = "設定を保存中…";
-      try {
-        const { data, error } = await db.rpc("card_admin_set_maintenance", {
-          p_enabled: enabled,
-          p_message: text,
-          p_ends_at: endsAt ? endsAt.toISOString() : null,
-        });
-        if (error) throw error;
-        if (current !== generation || !authorized) return;
-        if (!data || data.maintenance !== enabled) {
-          throw Error(
-            "保存結果を確認できませんでした。使用状況を再取得して確認してください。",
-          );
-        }
-        maintenanceRevision++;
-        usageSnapshot = null;
-        usageFetchedAt = 0;
-        showMaintenanceStatus(data);
-        $("maintenance-save-message").textContent = enabled
-          ? "メンテナンスを開始しました。"
-          : "メンテナンスを解除しました。";
-      } catch (error) {
-        if (current === generation && authorized) {
-          $("maintenance-save-message").textContent =
-            "保存に失敗しました：" + errorText(error);
-        }
-      } finally {
-        $("maintenance-save").disabled = false;
-        $("maintenance-enabled").disabled = false;
-      }
-    };
-    $("registration-controls").onsubmit = async (event) => {
-      event.preventDefault();
-      if (!authorized || $("registration-save").disabled) return;
-      const registrationMode = $("registration-mode").value;
-      const text = $("registration-message").value.trim();
-      const value = $("registration-db-limit").value;
-      const limit = value === "" ? null : Number(value) * 1000000;
-      if (
-        !text ||
-        text.length > 200 ||
-        (limit !== null &&
-          (!Number.isSafeInteger(limit) ||
-            limit < 1000000 ||
-            limit > 1099511627776))
-      ) {
-        $("registration-save-message").textContent =
-          "設定値を確認してください。";
-        return;
-      }
-      $("registration-save").disabled = true;
-      const current = generation;
-      try {
-        const { data, error } = await db.rpc("card_admin_set_registration_mode", {
-          p_mode: registrationMode,
-          p_message: text,
-          p_database_limit_bytes: limit,
-        });
-        if (error) throw error;
-        if (current !== generation || !authorized) return;
-        showRegistrationStatus(data);
-        $("registration-save-message").textContent = "設定を保存しました。";
-      } catch (error) {
-        if (current === generation && authorized)
-          $("registration-save-message").textContent = errorText(error);
-      } finally {
-        $("registration-save").disabled = false;
-      }
     };
     let verseAdminPage = 0,
       verseHistoryPage = 0,
@@ -3256,10 +3030,6 @@
       verseHistoryPage++;
       loadVerseHistory();
     };
-    $("reload-operations").onclick = () => {
-      usageFetchedAt = 0;
-      loadUsage();
-    };
     $("contact-delete-cancel").onclick = () => {
       if (!contactDeleteBusy) $("contact-delete-dialog").close();
     };
@@ -3289,7 +3059,12 @@
       }
     };
 
-    window.CARD_VISIBILITY_ADMIN_HOST = { client: () => db, authorized: () => authorized, user: () => session?.user?.id, showPage };
+    window.CARD_VISIBILITY_ADMIN_HOST = {
+      client: () => db, authorized: () => authorized, user: () => session?.user?.id,
+      generation: () => generation, showPage, errorText, timestamp, config,
+      getUsage: getUsageSnapshot, invalidateUsage, invalidateCatalog,
+    };
+    document.dispatchEvent(new Event("admin-host-ready"));
     async function initializeSession() {
       const { data, error } = await db.auth.getSession();
       if (error) throw error;

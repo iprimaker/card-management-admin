@@ -1,56 +1,140 @@
-(() => {
-  const host = window.CARD_VISIBILITY_ADMIN_HOST,
+/* QR上限：共通設定は運営ページ、個別設定は登録者一覧で管理する。 */
+window.ADMIN_WORKFLOW.mount((host) => {
+  "use strict";
+  const W = window.ADMIN_WORKFLOW,
     root = document.getElementById("admin-operations");
-  if (!host || !root) return;
-  const panel = document.createElement("section");
+  const panel = document.createElement("article");
   panel.className = "usage-panel";
-  panel.innerHTML =
-    '<h2>QRコードの登録上限</h2><p>利用者1人あたりの合計です。カード・フルコーデ・パーツ・セーブコード・フレンドカードのQRをそれぞれ1件と数えます。</p><form><label><input type="checkbox" name="unlimited"> 上限なし</label><label>登録上限数<input name="limit" type="number" min="0" max="100000" value="100" required></label><p>0は新規登録を停止します。上限を下げても登録済みのQRは削除されません。</p><button type="submit">上限を保存</button><p role="status"></p></form>';
-  root.append(panel);
-  const f = panel.querySelector("form"),
-    msg = f.querySelector("[role=status]");
-  f.unlimited.onchange = () => (f.limit.disabled = f.unlimited.checked);
-  let who = null;
-  async function load() {
-    if (!host.authorized()) {
-      who = null;
+  panel.dataset.qrGlobal = "";
+  panel.innerHTML = `<div class="section-heading"><h2>QRコードの登録上限</h2><button type="button" data-reload>設定を更新</button></div>
+<p class="muted">利用者1人あたりの共通上限です。カード・コーデ・パーツ・セーブコード・フレカをそれぞれ1件と数えます。</p>
+<form><label class="invitation-follow"><input type="checkbox" name="unlimited">上限なし</label>
+<label>登録上限数<input name="limit" type="number" min="0" max="100000" step="1" value="100" required></label>
+<p class="muted">0件は新しいQRの登録を停止します。上限を下げても登録済みのQRは削除されません。個別設定は登録者一覧の「QR上限」から変更できます。</p>
+<button type="submit" class="primary">上限を保存</button><p role="status" aria-live="polite"></p></form>`;
+  (root.querySelector(".operations-grid") || root).append(panel);
+  const form = panel.querySelector("form"),
+    fields = form.elements,
+    message = form.querySelector("[role=status]");
+  let dirty = false,
+    busy = false,
+    loading = false,
+    ready = false,
+    request = 0;
+  const mode = () => {
+    fields.limit.disabled = fields.unlimited.checked || !ready;
+  };
+  const enable = () => {
+    form.querySelectorAll("input,button").forEach((control) => {
+      control.disabled = !ready;
+    });
+    mode();
+  };
+  enable();
+  W.protect(
+    "operations",
+    () => dirty,
+    () => busy,
+    () => {
+      dirty = false;
+    },
+  );
+  form.addEventListener("input", () => {
+    dirty = true;
+    mode();
+    message.textContent = "未保存の変更があります。";
+  });
+  async function load(force = false) {
+    if (
+      !host.authorized() ||
+      busy ||
+      loading ||
+      (dirty &&
+        (!force || !confirm("QR上限の未保存の変更を破棄して更新しますか？")))
+    )
       return;
-    }
-    if (who === host.user()) return;
-    const r = await host
-      .client()
-      .rpc("card_qr_admin_user_settings", { p_user: host.user() });
-    if (r.error) {
-      msg.textContent =
-        "QR設定を取得できませんでした。SQLの反映を確認してください。";
-      return;
-    }
-    who = host.user();
-    f.unlimited.checked = r.data.global_limit === null;
-    f.limit.disabled = f.unlimited.checked;
-    f.limit.value = r.data.global_limit ?? 100;
-  }
-  setInterval(() => load().catch(() => {}), 1500);
-  f.onsubmit = async (e) => {
-    e.preventDefault();
-    if (!host.authorized()) return;
-    const button = f.querySelector("button");
-    button.disabled = true;
+    const current = W.checkpoint(host),
+      id = ++request;
+    loading = true;
+    const unlock = W.lock(panel);
+    message.textContent = "QR上限を確認中…";
     try {
-      const r = await host.client().rpc("card_qr_admin_limit", {
-        p_limit: f.unlimited.checked ? null : Number(f.limit.value),
-      });
-      if (r.error) throw r.error;
-      msg.textContent = "登録上限を保存しました。";
-    } catch {
-      msg.textContent =
-        "保存できませんでした。管理者認証と通信状態をご確認ください。";
+      const result = await host
+        .client()
+        .rpc("card_qr_admin_user_settings", { p_user: host.user() });
+      if (!current() || id !== request) return;
+      if (result.error) throw result.error;
+      const value = result.data?.global_limit;
+      if (
+        value !== null &&
+        (!Number.isInteger(value) || value < 0 || value > 100000)
+      )
+        throw Error("QR上限を確認できませんでした。");
+      fields.unlimited.checked = value === null;
+      fields.limit.value = value ?? 100;
+      dirty = false;
+      ready = true;
+      message.textContent = "共通の登録上限を表示しています。";
+    } catch (error) {
+      if (current() && id === request)
+        message.textContent = host.errorText(error);
     } finally {
-      button.disabled = false;
+      if (id === request) {
+        loading = false;
+        unlock();
+        enable();
+      }
+    }
+  }
+  panel.querySelector("[data-reload]").onclick = () => load(true);
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    if (!host.authorized() || !ready || busy || loading) return;
+    const limit = fields.unlimited.checked ? null : Number(fields.limit.value);
+    if (
+      limit !== null &&
+      (!Number.isInteger(limit) || limit < 0 || limit > 100000)
+    ) {
+      message.textContent = "上限を0～100000件で入力してください。";
+      return;
+    }
+    const current = W.checkpoint(host),
+      id = request;
+    busy = true;
+    const unlock = W.lock(panel);
+    message.textContent = "保存中…";
+    try {
+      const result = await host
+        .client()
+        .rpc("card_qr_admin_limit", { p_limit: limit });
+      if (!current() || id !== request) return;
+      if (result.error) throw result.error;
+      dirty = false;
+      message.textContent = "登録上限を保存しました。";
+    } catch (error) {
+      if (current() && id === request)
+        message.textContent = host.errorText(error);
+    } finally {
+      if (current() && id === request) {
+        busy = false;
+        unlock();
+        mode();
+      }
     }
   };
-})();
-
+  document.addEventListener("admin-page-changed", (event) => {
+    if (event.detail.page === "operations") load();
+  });
+  document.addEventListener("admin-session-reset", () => {
+    request++;
+    dirty = busy = loading = ready = false;
+    form.reset();
+    message.textContent = "";
+    enable();
+    panel.querySelector("[data-reload]").disabled = false;
+  });
+  if (!root.hidden && host.authorized()) load();
+});
 (() => {
   "use strict";
   const host = () => window.CARD_VISIBILITY_ADMIN_HOST;
@@ -71,11 +155,15 @@
     status = modal.querySelector("[data-status]");
   let target = null,
     admin = null,
+    adminSession = null,
     generation = 0,
     busy = false;
   const count = (n) =>
     n === null ? "上限なし" : Number(n).toLocaleString("ja-JP") + "件";
-  const validAdmin = (user) => host()?.authorized() && host()?.user() === user;
+  const validAdmin = (user) =>
+    host()?.authorized() &&
+    host()?.user() === user &&
+    (adminSession === null || host()?.generation() === adminSession);
   function modeChanged() {
     const yes = fields.mode.value === "limited";
     modal.querySelector("[data-number]").hidden = !yes;
@@ -85,9 +173,12 @@
   fields.mode.onchange = modeChanged;
   modal.querySelector("[data-close]").onclick = () => modal.close();
   modal.addEventListener("close", () => {
+    busy = false;
+    form.querySelector("[type=submit]").disabled = false;
     generation++;
     target = null;
     admin = null;
+    adminSession = null;
     status.textContent = "";
     form.reset();
     modal.querySelector("[data-list]").replaceChildren();
@@ -113,6 +204,7 @@
       id = button.dataset.qrUserLimit;
     target = id;
     admin = user;
+    adminSession = host().generation();
     modal.querySelector("[data-list]").replaceChildren();
     modal.querySelector("[data-list-status]").textContent = "";
     modal.querySelector(".qr-user-entries").open = false;
@@ -263,13 +355,11 @@
     button.disabled = true;
     status.textContent = "保存しています…";
     try {
-      const r = await host()
-        .client()
-        .rpc("card_qr_admin_user_limit", {
-          p_user: id,
-          p_mode: mode,
-          p_limit: limit,
-        });
+      const r = await host().client().rpc("card_qr_admin_user_limit", {
+        p_user: id,
+        p_mode: mode,
+        p_limit: limit,
+      });
       if (!validAdmin(user) || request !== generation) return;
       if (r.error) throw r.error;
       for (const b of root.querySelectorAll("[data-qr-user-limit]"))
@@ -282,13 +372,29 @@
         status.textContent =
           "保存できませんでした。管理者認証と通信状態をご確認ください。";
     } finally {
-      busy = false;
-      button.disabled = false;
+      if (validAdmin(user) && request === generation) {
+        busy = false;
+        button.disabled = false;
+      }
     }
   };
   new MutationObserver(mount).observe(root, { childList: true, subtree: true });
   mount();
-  setInterval(() => {
-    if (modal.open && !validAdmin(admin)) modal.close();
-  }, 500);
+  document.addEventListener("admin-session-reset", () => {
+    generation++;
+    listRequest++;
+    target = admin = adminSession = null;
+    busy = false;
+    if (modal.open) modal.close();
+    form.reset();
+    form.querySelector("[type=submit]").disabled = false;
+    for (const selector of [
+      "[data-person]",
+      "[data-current]",
+      "[data-status]",
+      "[data-list-status]",
+      "[data-list]",
+    ])
+      modal.querySelector(selector).replaceChildren();
+  });
 })();
