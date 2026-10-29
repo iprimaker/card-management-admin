@@ -19,7 +19,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
 </label>
 <div class="publishing-tabs" role="group" aria-label="承認の状態">
 <button type="button" data-tab="pending">確認待ち</button>
-<button type="button" data-tab="configured">設定済み</button>
+<button type="button" data-tab="restricted">制限中</button>
 <button type="button" data-tab="all">すべて</button>
 </div>
 <label>対象<select data-kind>
@@ -131,11 +131,57 @@ window.ADMIN_WORKFLOW.mount((host) => {
     loading = false,
     request = 0,
     stale = false;
-  const labels = {
-    pending: "確認待ち",
-    approved: "設定済み",
-    rejected: "却下・設定解除",
-  };
+  let transitionTimer = null;
+  function reviewStatus(review, now = Date.now()) {
+    if (!review) return "未設定";
+    if (review.state === "pending") return "確認待ち";
+    if (review.state === "rejected") return "却下・設定解除";
+    if (review.state !== "approved") return "確認が必要";
+    if (
+      !["hide_image", "hide_name", "hide_details"].some(
+        (key) => review[key] === true,
+      )
+    )
+      return "公開中";
+    const start = Date.parse(review.starts_at),
+      end = Date.parse(review.ends_at);
+    if (!Number.isFinite(start) || !Number.isFinite(end))
+      return "日時の確認が必要";
+    if (end <= now) return "公開中";
+    if (start > now) return "制限予定";
+    return "制限中";
+  }
+  function scheduleTransition() {
+    clearTimeout(transitionTimer);
+    transitionTimer = null;
+    if (root.hidden || !host.authorized()) return;
+    const now = Date.now();
+    let next = Infinity;
+    for (const review of reviews.values()) {
+      if (
+        review.state !== "approved" ||
+        !["hide_image", "hide_name", "hide_details"].some(
+          (key) => review[key] === true,
+        )
+      )
+        continue;
+      for (const value of [review.starts_at, review.ends_at]) {
+        const time = Date.parse(value);
+        if (time > now && time < next) next = time;
+      }
+    }
+    if (Number.isFinite(next))
+      transitionTimer = setTimeout(
+        () => {
+          if (!host.authorized() || root.hidden) return;
+          paintList();
+          if (selectedId)
+            $("[data-state]").textContent = reviewStatus(selected);
+          scheduleTransition();
+        },
+        Math.min(Math.max(1, next - now), 2147483647),
+      );
+  }
   const normalize = (value) =>
     String(value || "")
       .normalize("NFKC")
@@ -155,13 +201,15 @@ window.ADMIN_WORKFLOW.mount((host) => {
     return card.target_kind === "coordinate" ? "coordinate" : "card";
   }
   function paintList() {
+    if (selectedId) $("[data-state]").textContent = reviewStatus(selected);
     const query = normalize($("[data-search]").value),
       target = $("[data-kind]").value;
     const filtered = rows.filter(
       (card) =>
         (tab === "all" ||
-          card.review?.state ===
-            (tab === "configured" ? "approved" : "pending")) &&
+          (tab === "restricted"
+            ? reviewStatus(card.review) === "制限中"
+            : card.review?.state === "pending")) &&
         (target === "all" || kind(card) === target) &&
         normalize([card.id, card.code, card.name].join(" ")).includes(query),
     );
@@ -176,7 +224,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
           "small",
           (kind(card) === "coordinate" ? "コーデ" : "カード") +
             " · " +
-            (labels[card.review?.state] || "未設定"),
+            reviewStatus(card.review),
         ],
         ["strong", card.name || "名前未取得"],
         ["span", card.code || card.id],
@@ -241,14 +289,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
     $("[data-editor]").hidden = false;
     $("[data-name]").textContent = card.name || "名前未取得";
     $("[data-code]").textContent = card.code || id;
-    let status = labels[selected?.state] || "未設定";
-    if (
-      selected?.state === "approved" &&
-      selected.ends_at &&
-      new Date(selected.ends_at) <= new Date()
-    )
-      status += " · 公開日時経過";
-    $("[data-state]").textContent = status;
+    $("[data-state]").textContent = reviewStatus(selected);
     f.starts_at.value = W.localDate(selected?.starts_at || new Date());
     f.ends_at.value = W.localDate(selected?.ends_at);
     f.reason.value = selected?.reason || "prerelease";
@@ -314,6 +355,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
       );
       dirty = stale = false;
       paintList();
+      scheduleTransition();
       if (selectedId && all.has(selectedId)) choose(selectedId);
       else {
         selectedId = selected = null;
@@ -321,7 +363,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
         $("[data-empty]").hidden = false;
       }
       $("[data-status]").textContent =
-        "確認待ちは承認が必要です。設定済みには承認済みの公開設定を表示します。";
+        "制限中には、現在の時刻が制限期間内で、画像・名前・詳細のいずれかを非表示にしているものを表示します。公開中・制限予定は「すべて」から確認できます。";
       return true;
     } catch (error) {
       if (current() && id === request)
@@ -433,10 +475,19 @@ window.ADMIN_WORKFLOW.mount((host) => {
     $("[data-save-status]").textContent = "未保存の変更があります。";
   });
   document.addEventListener("admin-page-changed", (event) => {
-    if (event.detail.page === "visibility") load();
+    if (event.detail.page === "visibility") {
+      load();
+      paintList();
+      scheduleTransition();
+    } else {
+      clearTimeout(transitionTimer);
+      transitionTimer = null;
+    }
   });
   document.addEventListener("admin-session-reset", () => {
     request++;
+    clearTimeout(transitionTimer);
+    transitionTimer = null;
     rows = [];
     reviews.clear();
     selectedId = selected = null;
@@ -463,6 +514,18 @@ window.ADMIN_WORKFLOW.mount((host) => {
       $(selector).textContent = "";
     $("[data-editor]").hidden = true;
     $("[data-empty]").hidden = false;
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && !root.hidden && host.authorized()) {
+      paintList();
+      scheduleTransition();
+    }
+  });
+  window.addEventListener("focus", () => {
+    if (!root.hidden && host.authorized()) {
+      paintList();
+      scheduleTransition();
+    }
   });
   if (!root.hidden && host.authorized()) load();
 });

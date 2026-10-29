@@ -244,6 +244,113 @@ window.ADMIN_WORKFLOW.mount((host) => {
   };
   let invitationBusy = false,
     invitationEpoch = 0;
+  const invitationText = (url) => `フォローとご連絡ありがとうございます。
+リンク（${url}）よりご登録をお願いします。
+※招待URLは一度のみ有効です。招待URLの再発行は受け付けておりません。あらかじめご了承ください。`;
+  function renderInvitations(rows) {
+    const root = $("invitation-list");
+    root.replaceChildren();
+    const pending = rows.filter((row) =>
+      ["ready", "claimed"].includes(row.state),
+    );
+    const completed = rows.filter((row) => row.state === "completed");
+    const other = rows.filter(
+      (row) => !["ready", "claimed", "completed"].includes(row.state),
+    );
+    const current = W.checkpoint(host);
+    function table(items) {
+      const wrap = document.createElement("div");
+      wrap.className = "invitation-table-wrap";
+      const table = document.createElement("table");
+      table.className = "invitation-table";
+      const head = table.createTHead().insertRow();
+      for (const title of ["状態", "発行日時", "有効期限", "操作"]) {
+        const th = document.createElement("th");
+        th.scope = "col";
+        th.textContent = title;
+        head.append(th);
+      }
+      const body = table.createTBody();
+      for (const row of items) {
+        const tr = body.insertRow();
+        tr.dataset.invitationState = row.state;
+        const status = tr.insertCell();
+        const tag = document.createElement("span");
+        tag.className = "invitation-state-tag";
+        tag.textContent =
+          {
+            ready: "未登録",
+            claimed: "登録中",
+            completed: "登録済み",
+            revoked: "無効",
+            expired: "期限切れ",
+          }[row.state] || "確認が必要";
+        status.append(tag);
+        for (const value of [row.created_at, row.expires_at]) {
+          const cell = tr.insertCell();
+          cell.className = "invitation-date";
+          for (const part of String(host.timestamp(value)).split(/\s+/)) {
+            const span = document.createElement("span");
+            span.textContent = part;
+            cell.append(span);
+          }
+        }
+        const action = tr.insertCell();
+        if (["ready", "claimed"].includes(row.state)) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = "無効にする";
+          button.onclick = async () => {
+            if (
+              !current() ||
+              !confirm(
+                "この招待URLを無効にします。開始済みの登録も完了できなくなります。",
+              )
+            )
+              return;
+            button.disabled = true;
+            try {
+              const result = await db.rpc("card_admin_invitation_revoke", {
+                p_id: row.id,
+              });
+              if (!current()) return;
+              if (result.error) throw result.error;
+              await loadInvitations();
+            } catch (error) {
+              if (current())
+                $("invitation-message").textContent = host.errorText(error);
+            } finally {
+              if (current()) button.disabled = false;
+            }
+          };
+          action.append(button);
+        } else action.textContent = "—";
+      }
+      wrap.append(table);
+      return wrap;
+    }
+    const title = document.createElement("h3");
+    title.textContent = `未登録・登録中（${pending.length}件）`;
+    root.append(title);
+    if (pending.length) root.append(table(pending));
+    else {
+      const empty = document.createElement("p");
+      empty.textContent = "未登録・登録中の招待はありません。";
+      root.append(empty);
+    }
+    for (const [label, items] of [
+      ["登録済み", completed],
+      ["期限切れ・無効など", other],
+    ]) {
+      if (!items.length) continue;
+      const details = document.createElement("details");
+      details.className = "invitation-history";
+      const summary = document.createElement("summary");
+      summary.textContent = `${label}（${items.length}件）`;
+      details.append(summary, table(items));
+      root.append(details);
+    }
+  }
   async function loadInvitations() {
     if (!host.authorized() || invitationBusy) return;
     const current = host.generation(),
@@ -255,58 +362,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
       if (error) throw error;
       if (current !== host.generation() || !host.authorized()) return;
       if (!Array.isArray(data)) throw Error("招待一覧を確認できませんでした。");
-      $("invitation-list").replaceChildren();
-      if (!data.length)
-        $("invitation-list").textContent = "発行した招待はありません。";
-      for (const row of data) {
-        const item = document.createElement("div");
-        item.className = "invitation-row";
-        const text = document.createElement("span");
-        text.textContent =
-          ({
-            ready: "未使用",
-            claimed: "手続き開始済み",
-            completed: "登録完了",
-            revoked: "無効",
-            expired: "期限切れ",
-          }[row.state] || "確認中") +
-          " ／ 発行 " +
-          host.timestamp(row.created_at) +
-          " ／ 期限 " +
-          host.timestamp(row.expires_at);
-        item.append(text);
-        if (["ready", "claimed"].includes(row.state)) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = "無効にする";
-          button.onclick = async () => {
-            if (
-              !host.authorized() ||
-              current !== host.generation() ||
-              !confirm(
-                "この招待URLを無効にします。開始済みの登録も完了できなくなります。",
-              )
-            )
-              return;
-            button.disabled = true;
-            try {
-              const response = await db.rpc("card_admin_invitation_revoke", {
-                p_id: row.id,
-              });
-              if (response.error) throw response.error;
-              if (current === host.generation() && host.authorized())
-                await loadInvitations();
-            } catch (error) {
-              if (current === host.generation() && host.authorized())
-                $("invitation-message").textContent = host.errorText(error);
-            } finally {
-              button.disabled = false;
-            }
-          };
-          item.append(button);
-        }
-        $("invitation-list").append(item);
-      }
+      renderInvitations(data);
     } catch (error) {
       if (current === host.generation() && host.authorized())
         $("invitation-message").textContent = host.errorText(error);
@@ -322,13 +378,16 @@ window.ADMIN_WORKFLOW.mount((host) => {
     if (!host.authorized() || !$("invitation-url").value) return;
     const current = W.checkpoint(host);
     try {
-      await navigator.clipboard.writeText($("invitation-url").value);
+      await navigator.clipboard.writeText(
+        invitationText($("invitation-url").value),
+      );
       if (current())
-        $("invitation-message").textContent = "招待URLをコピーしました。";
+        $("invitation-message").textContent =
+          "案内文と招待URLをコピーしました。";
     } catch {
       if (current())
         $("invitation-message").textContent =
-          "コピーできませんでした。URLを選択してコピーしてください。";
+          "コピーできませんでした。「送信用の案内文」を選択してコピーしてください。";
     }
   };
   $("invitation-create").onsubmit = async (event) => {
@@ -352,6 +411,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
     $("invitation-issue").disabled = true;
     $("invitation-message").textContent = "発行中…";
     $("invitation-url").value = "";
+    $("invitation-copy-text").value = "";
     $("invitation-result").hidden = true;
     try {
       // 公開先を先に検証し、設定不備で使えないURLを発行しません。
@@ -375,6 +435,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
       url.searchParams.set("view", "invite");
       url.hash = "invite=" + data.token;
       $("invitation-url").value = url.href;
+      $("invitation-copy-text").value = invitationText(url.href);
       $("invitation-result").hidden = false;
       $("invitation-follow-confirm").checked = false;
       $("invitation-message").textContent =
@@ -390,7 +451,10 @@ window.ADMIN_WORKFLOW.mount((host) => {
   };
 
   document.addEventListener("admin-page-changed", (event) => {
-    if (event.detail.page === "operations") load();
+    if (event.detail.page === "operations") {
+      load();
+      loadInvitations();
+    }
   });
   document.addEventListener("admin-session-reset", () => {
     request++;
@@ -415,8 +479,12 @@ window.ADMIN_WORKFLOW.mount((host) => {
       $(id).textContent = "";
     $("invitation-create").reset();
     $("invitation-url").value = "";
+    $("invitation-copy-text").value = "";
     $("invitation-result").hidden = true;
     $("invitation-list").replaceChildren();
   });
-  if (!root.hidden && host.authorized()) load();
+  if (!root.hidden && host.authorized()) {
+    load();
+    loadInvitations();
+  }
 });

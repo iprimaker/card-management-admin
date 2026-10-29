@@ -2934,3 +2934,21 @@ tbody td {
 [data-qr-global] .invitation-follow input{width:18px;height:18px;margin:0;flex:none;accent-color:var(--accent)}
 [data-qr-global] .section-heading{align-items:center;flex-wrap:wrap}
 [data-qr-global] .section-heading h2{margin:0}
+/* 招待の送信用文面と状態別一覧 */
+#invitation-copy-text{font-size:13px;line-height:1.8;min-height:150px;resize:vertical}
+#invitation-list h3{font-size:13px;margin:18px 0 10px;color:var(--text)}
+.invitation-table-wrap{max-width:100%;overflow-x:auto}
+.invitation-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px;line-height:1.6}
+.invitation-table th,.invitation-table td{padding:10px 5px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;overflow-wrap:anywhere}
+.invitation-table th{font-weight:600;color:var(--muted);background:#faf9fc}
+.invitation-table th:first-child{width:56px}.invitation-table th:last-child{width:72px}
+.invitation-table button{font-size:11px;min-height:32px;padding:5px 7px;white-space:normal}
+.invitation-state-tag{font-size:10px;background:var(--soft);color:var(--accent);border-radius:5px;padding:4px 6px;display:inline-block}
+.invitation-history{margin-top:14px;border:1px solid var(--line);border-radius:9px;padding:10px}
+.invitation-history summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--muted)}
+.invitation-history[open] summary{margin-bottom:10px}
+@media(max-width:600px){#invitation-copy-text{font-size:16px}.invitation-table th,.invitation-table td{padding:8px 3px}.invitation-table th:first-child{width:48px}.invitation-table th:last-child{width:64px}.invitation-history{padding:9px 5px}}
+#admin-operations .invitation-table th,#admin-operations .invitation-table td{white-space:normal;word-break:break-word;overflow-wrap:anywhere}
+#admin-operations .invitation-table .invitation-date span{display:block;white-space:normal;overflow-wrap:anywhere;line-height:1.6}
+#admin-operations .invitation-table td,#admin-operations .invitation-table th{font-size:11px}
+@media(max-width:600px){#admin-operations .invitation-table th:first-child{width:56px}#admin-operations .invitation-state-tag{padding:4px}.invitation-date span{font-size:10px}}

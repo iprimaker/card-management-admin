@@ -6,17 +6,17 @@
     <meta content="noindex,nofollow" name="robots" />
     <title>カードアルバム管理</title>
     <link href="./icon.png" rel="icon" />
-    <link href="./admin.css?v=20261030-admin-organize-v1" rel="stylesheet" />
-    <script src="./startup.js?v=20261030-admin-organize-v1"></script>
+    <link href="./admin.css?v=20261030-admin-invitation-visibility-v1" rel="stylesheet" />
+    <script src="./startup.js?v=20261030-admin-invitation-visibility-v1"></script>
     <script
       defer=""
-      src="./vendor/supabase.js?v=20261030-admin-organize-v1"
+      src="./vendor/supabase.js?v=20261030-admin-invitation-visibility-v1"
     ></script>
-    <script defer="" src="./config.js?v=20261030-admin-organize-v1"></script>
-    <script defer="" src="./catalog-cache.js?v=20261030-admin-organize-v1"></script>
-    <script defer src="./primagi.js?v=20261030-admin-organize-v1"></script>
-    <script defer src="./admin-workflow.js?v=20261030-admin-organize-v1"></script>
-    <script defer="" src="./admin.js?v=20261030-admin-organize-v1"></script>
+    <script defer="" src="./config.js?v=20261030-admin-invitation-visibility-v1"></script>
+    <script defer="" src="./catalog-cache.js?v=20261030-admin-invitation-visibility-v1"></script>
+    <script defer src="./primagi.js?v=20261030-admin-invitation-visibility-v1"></script>
+    <script defer src="./admin-workflow.js?v=20261030-admin-invitation-visibility-v1"></script>
+    <script defer="" src="./admin.js?v=20261030-admin-invitation-visibility-v1"></script>
     <link rel="apple-touch-icon" href="./icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="アルバム運営" />
@@ -45,7 +45,7 @@
         </div>
       </div>
       <div hidden="" id="admin-nav">
-        <button type="button" data-page="visibility">公開設定・承認</button>
+        <button type="button" data-page="visibility"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"></rect><path d="m8 12 3 3 5-6"></path><path d="M8 7h5"></path></svg><span>公開設定・承認</span></button>
         <button class="active" data-page="users">
           <svg
             viewBox="0 0 24 24"
@@ -748,9 +748,9 @@
               <p class="muted">Xでのフォローを確認してから、1人につき1つ発行してください。「招待のみ受付」のときも登録できます。「招待も停止」では登録できません。URLは一度開くと使用済みになります。</p>
               <p class="muted">再読み込み・再アクセスで再開できません。招待URLの再発行はいたしかねます。</p>
               <form id="invitation-create"><label>URLの有効期限（日）<input id="invitation-days" type="number" min="1" max="30" value="7" required></label><label class="invitation-follow"><input id="invitation-follow-confirm" type="checkbox" required>招待する方のフォローを確認しました</label><button class="primary" id="invitation-issue">招待URLを発行</button></form>
-              <div id="invitation-result" hidden><label>発行した招待URL<input id="invitation-url" type="text" readonly autocomplete="off" spellcheck="false"></label><button type="button" id="invitation-copy">コピー</button><p class="muted">この画面を閉じるとURLは再表示できません。相手に送る前に、このURLを開かないでください。</p></div>
+              <div id="invitation-result" hidden><label>発行した招待URL<input id="invitation-url" type="text" readonly autocomplete="off" spellcheck="false"></label><label>送信用の案内文<textarea id="invitation-copy-text" rows="6" readonly spellcheck="false"></textarea></label><button type="button" id="invitation-copy">案内文とURLをコピー</button><p class="muted">この画面を閉じるとURLは再表示できません。相手に送る前に、このURLを開かないでください。</p></div>
               <p role="status" id="invitation-message"></p>
-              <div id="invitation-list" class="muted">「更新」で直近100件の状態を確認できます。</div>
+              <div id="invitation-list" class="muted">直近100件の招待状況を表示します。</div>
             </article>
           </div>
         </section>
@@ -1076,11 +1076,11 @@
         </button>
       </div>
     </dialog>
-    <script defer src="./admin-operations.js?v=20261030-admin-organize-v1"></script>
+    <script defer src="./admin-operations.js?v=20261030-admin-invitation-visibility-v1"></script>
     <script
       defer
-      src="./card-visibility-admin.js?v=20261030-admin-organize-v1"
+      src="./card-visibility-admin.js?v=20261030-admin-invitation-visibility-v1"
     ></script>
-    <script defer src="./private-qr-admin.js?v=20261030-admin-organize-v1"></script>
+    <script defer src="./private-qr-admin.js?v=20261030-admin-invitation-visibility-v1"></script>
   </body>
 </html>
