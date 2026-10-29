@@ -2441,8 +2441,8 @@
     }
     function showRegistrationStatus(status) {
       $("registration-state").textContent = status.allowed
-        ? "受付中"
-        : "新規登録を停止中";
+        ? "通常登録を受付中"
+        : status.invitation_allowed === true ? "招待からのみ受付中" : "招待を含め新規登録を停止中";
       $("registration-state").classList.toggle("paused", !status.allowed);
     }
     let maintenanceRevision = 0;
@@ -2503,7 +2503,12 @@
           );
         $("usage-measured").textContent =
           "確認日時：" + timestamp(data.measured_at);
-        $("registration-enabled").checked = settings.registration_enabled;
+        const registrationResult = await db.rpc("card_album_registration_status_v2");
+        if (registrationResult.error || !["open", "invitation", "closed"].includes(registrationResult.data?.mode)) throw registrationResult.error || Error("受付方法を確認できませんでした。SQLの適用状況を確認してください。");
+        if (current !== generation || !authorized) return;
+        $("registration-mode").value = registrationResult.data.mode;
+        $("registration-mode").disabled = false;
+        $("registration-save").disabled = false;
         $("registration-message").value = settings.pause_message;
         $("registration-db-limit").value = settings.database_limit_bytes
           ? Math.round(Number(settings.database_limit_bytes) / 1000000)
@@ -2513,7 +2518,7 @@
           message: settings.maintenance_message,
           ends_at: settings.maintenance_ends_at,
         });
-        showRegistrationStatus(data.registration);
+        showRegistrationStatus(registrationResult.data);
         $("usage-tables").innerHTML = (data.tables || [])
           .map(
             (t) =>
@@ -2883,7 +2888,7 @@
     $("registration-controls").onsubmit = async (event) => {
       event.preventDefault();
       if (!authorized || $("registration-save").disabled) return;
-      const enabled = $("registration-enabled").checked;
+      const registrationMode = $("registration-mode").value;
       const text = $("registration-message").value.trim();
       const value = $("registration-db-limit").value;
       const limit = value === "" ? null : Number(value) * 1000000;
@@ -2902,8 +2907,8 @@
       $("registration-save").disabled = true;
       const current = generation;
       try {
-        const { data, error } = await db.rpc("card_admin_set_registration", {
-          p_enabled: enabled,
+        const { data, error } = await db.rpc("card_admin_set_registration_mode", {
+          p_mode: registrationMode,
           p_message: text,
           p_database_limit_bytes: limit,
         });

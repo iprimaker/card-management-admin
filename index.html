@@ -6,16 +6,16 @@
     <meta content="noindex,nofollow" name="robots" />
     <title>カードアルバム管理</title>
     <link href="./icon.png" rel="icon" />
-    <link href="./admin.css?v=20261029-invitation-url-v2" rel="stylesheet" />
-    <script src="./startup.js?v=20261029-invitation-url-v2"></script>
+    <link href="./admin.css?v=20261030-invite-notice-v1" rel="stylesheet" />
+    <script src="./startup.js?v=20261030-invite-notice-v1"></script>
     <script
       defer=""
-      src="./vendor/supabase.js?v=20261029-invitation-url-v2"
+      src="./vendor/supabase.js?v=20261030-invite-notice-v1"
     ></script>
-    <script defer="" src="./config.js?v=20261029-invitation-url-v2"></script>
-    <script defer="" src="./catalog-cache.js?v=20261029-invitation-url-v2"></script>
-    <script defer src="./primagi.js?v=20261029-invitation-url-v2"></script>
-    <script defer="" src="./admin.js?v=20261029-invitation-url-v2"></script>
+    <script defer="" src="./config.js?v=20261030-invite-notice-v1"></script>
+    <script defer="" src="./catalog-cache.js?v=20261030-invite-notice-v1"></script>
+    <script defer src="./primagi.js?v=20261030-invite-notice-v1"></script>
+    <script defer="" src="./admin.js?v=20261030-invite-notice-v1"></script>
     <link rel="apple-touch-icon" href="./icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="アルバム運営" />
@@ -715,14 +715,14 @@
               <h2>新規登録の受付</h2>
               <p class="registration-state" id="registration-state"></p>
               <form id="registration-controls">
-                <label class="registration-toggle"
-                  ><input
-                    id="registration-enabled"
-                    type="checkbox"
-                  />新規登録を受け付ける</label
-                >
+                <label>受付方法<select disabled id="registration-mode" aria-describedby="registration-mode-help">
+                  <option value="open">ON：通常登録を受付</option>
+                  <option value="invitation">OFF：招待のみ受付</option>
+                  <option value="closed">OFF：招待も停止</option>
+                </select></label>
+                <p class="muted" id="registration-mode-help">招待のみ受付：新規登録画面に案内とXボタンを表示します。招待も停止：Xボタンを表示せず、招待URLからの登録と開始済みの招待登録の完了も停止します。</p>
                 <label
-                  >停止中の案内<textarea
+                  >停止時のエラーメッセージ<textarea
                     id="registration-message"
                     maxlength="200"
                     required=""
@@ -744,7 +744,7 @@
                 <button id="registration-free-preset" type="button">
                   無料枠の90％（450MB）を停止基準にする
                 </button>
-                <button class="primary" id="registration-save">
+                <button class="primary" id="registration-save" disabled>
                   設定を保存
                 </button>
                 <p id="registration-save-message" role="status"></p>
@@ -1085,8 +1085,8 @@
     </dialog>
     <script
       defer
-      src="./card-visibility-admin.js?v=20261029-invitation-url-v2"
+      src="./card-visibility-admin.js?v=20261030-invite-notice-v1"
     ></script>
-    <script defer src="./private-qr-admin.js?v=20261029-invitation-url-v2"></script>
+    <script defer src="./private-qr-admin.js?v=20261030-invite-notice-v1"></script>
   </body>
 </html>
