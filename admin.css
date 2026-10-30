@@ -2869,7 +2869,6 @@ tbody td {
 #user-qr-range[hidden]{display:none!important}#user-qr-range input{font-size:16px;box-sizing:border-box}#user-qr-range{flex-wrap:wrap}
 #invitation-create{display:grid;gap:14px}
 #invitation-create .invitation-follow{display:flex;align-items:flex-start;gap:9px;font-size:14px;font-weight:400;line-height:1.6}
-#invitation-follow-confirm{width:18px;min-width:18px;height:18px;margin:3px 0 0;padding:0;flex:0 0 18px;accent-color:#b7658d}
 #invitation-result:not([hidden]){display:grid;gap:10px;margin-top:16px}
 #invitation-url{font-size:13px;font-weight:400}
 #invitation-message{overflow-wrap:anywhere}

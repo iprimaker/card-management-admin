@@ -193,7 +193,6 @@
       $("invitation-url").value = "";
       $("invitation-result").hidden = true;
       $("invitation-list").replaceChildren();
-      $("invitation-follow-confirm").checked = false;
       $("invitation-message").textContent = "";
       usersRefreshBusy = false;
       clearTimeout(userSearchTimer);
