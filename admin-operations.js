@@ -245,8 +245,10 @@ window.ADMIN_WORKFLOW.mount((host) => {
   let invitationBusy = false,
     invitationEpoch = 0;
   const invitationText = (url) => `フォローとご連絡ありがとうございます。
-リンク（${url}）よりご登録をお願いします。
-※招待URLは一度のみ有効です。招待URLの再発行は受け付けておりません。あらかじめご了承ください。`;
+添付のリンク（招待URL）よりご登録をお願いします。
+※招待URLは一度のみ有効です。招待URLの再発行は受け付けておりません。あらかじめご了承ください。
+
+${url}`;
   function renderInvitations(rows) {
     const root = $("invitation-list");
     root.replaceChildren();
@@ -392,12 +394,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
   };
   $("invitation-create").onsubmit = async (event) => {
     event.preventDefault();
-    if (
-      !host.authorized() ||
-      $("invitation-issue").disabled ||
-      !$("invitation-follow-confirm").checked
-    )
-      return;
+    if (!host.authorized() || $("invitation-issue").disabled) return;
     const current = host.generation(),
       days = Number($("invitation-days").value);
     if (!Number.isInteger(days) || days < 1 || days > 30) return;
@@ -437,7 +434,6 @@ window.ADMIN_WORKFLOW.mount((host) => {
       $("invitation-url").value = url.href;
       $("invitation-copy-text").value = invitationText(url.href);
       $("invitation-result").hidden = false;
-      $("invitation-follow-confirm").checked = false;
       $("invitation-message").textContent =
         "招待URLを発行しました。有効期限：" + host.timestamp(data.expires_at);
       await loadInvitations();

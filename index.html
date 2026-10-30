@@ -745,10 +745,10 @@
             </article>
             <article class="usage-panel">
               <div class="section-heading"><h2>フォロワー向けの招待</h2><button type="button" id="invitation-reload">更新</button></div>
-              <p class="muted">Xでのフォローを確認してから、1人につき1つ発行してください。「招待のみ受付」のときも登録できます。「招待も停止」では登録できません。URLは一度開くと使用済みになります。</p>
+              <p class="muted">1人につき1つ発行してください。「招待のみ受付」のときも登録できます。「招待も停止」では登録できません。URLは一度開くと使用済みになります。</p>
               <p class="muted">再読み込み・再アクセスで再開できません。招待URLの再発行はいたしかねます。</p>
-              <form id="invitation-create"><label>URLの有効期限（日）<input id="invitation-days" type="number" min="1" max="30" value="7" required></label><label class="invitation-follow"><input id="invitation-follow-confirm" type="checkbox" required>招待する方のフォローを確認しました</label><button class="primary" id="invitation-issue">招待URLを発行</button></form>
-              <div id="invitation-result" hidden><label>発行した招待URL<input id="invitation-url" type="text" readonly autocomplete="off" spellcheck="false"></label><label>送信用の案内文<textarea id="invitation-copy-text" rows="6" readonly spellcheck="false"></textarea></label><button type="button" id="invitation-copy">案内文とURLをコピー</button><p class="muted">この画面を閉じるとURLは再表示できません。相手に送る前に、このURLを開かないでください。</p></div>
+              <form id="invitation-create"><label>URLの有効期限（日）<input id="invitation-days" type="number" min="1" max="30" value="7" required></label><button class="primary" id="invitation-issue">招待URLを発行</button></form>
+              <div id="invitation-result" hidden><label>発行した招待URL<input id="invitation-url" type="text" readonly autocomplete="off" spellcheck="false"></label><label>送信用の案内文<textarea id="invitation-copy-text" rows="8" readonly spellcheck="false"></textarea></label><button type="button" id="invitation-copy">案内文とURLをコピー</button><p class="muted">この画面を閉じるとURLは再表示できません。相手に送る前に、このURLを開かないでください。</p></div>
               <p role="status" id="invitation-message"></p>
               <div id="invitation-list" class="muted">直近100件の招待状況を表示します。</div>
             </article>
@@ -1076,7 +1076,7 @@
         </button>
       </div>
     </dialog>
-    <script defer src="./admin-operations.js?v=20261030-admin-invitation-visibility-v1"></script>
+    <script defer src="./admin-operations.js?v=20261030-invitation-message-v2"></script>
     <script
       defer
       src="./card-visibility-admin.js?v=20261030-admin-invitation-visibility-v1"
