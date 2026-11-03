@@ -2951,3 +2951,8 @@ tbody td {
 #admin-operations .invitation-table .invitation-date span{display:block;white-space:normal;overflow-wrap:anywhere;line-height:1.6}
 #admin-operations .invitation-table td,#admin-operations .invitation-table th{font-size:11px}
 @media(max-width:600px){#admin-operations .invitation-table th:first-child{width:56px}#admin-operations .invitation-state-tag{padding:4px}.invitation-date span{font-size:10px}}
+
+.registration-capacity-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.capacity-enabled { display:flex; align-items:center; gap:9px; }
+.capacity-enabled input[type="checkbox"] { width:18px; min-width:18px; height:18px; }
+@media(max-width:600px) { .registration-capacity-fields {grid-template-columns:1fr;} }

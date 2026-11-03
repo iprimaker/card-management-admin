@@ -18,7 +18,16 @@ window.ADMIN_WORKFLOW.mount((host) => {
     ready = false;
   let maintenance = null,
     dirty = new Set();
-  const forms = ["maintenance-controls", "registration-controls"];
+  const forms = ["maintenance-controls", "registration-controls", "registration-capacity-controls"];
+  let capacityRevision = null;
+  function renderCapacity(data) {
+    if (!data || typeof data.enabled !== "boolean" || !Number.isSafeInteger(data.revision)) throw Error("人数制限の設定を確認できません。設定SQLを確認してください。");
+    capacityRevision = data.revision;
+    $("registration-capacity-enabled").checked = data.enabled;
+    $("registration-capacity-minutes").value = data.window_minutes;
+    $("registration-capacity-maximum").value = data.max_registrations;
+    $("registration-capacity-state").textContent = `${data.window_minutes}分あたり最大${data.max_registrations}人 ／ 現在${data.used}人` + (data.enabled ? (data.limited ? " · 上限に達しています" : " · 制限は有効です") : " · 制限は無効です");
+  }
   const enableSettings = (enabled) =>
     forms.forEach((id) =>
       $(id)
@@ -40,11 +49,11 @@ window.ADMIN_WORKFLOW.mount((host) => {
       $(
         id === forms[0]
           ? "maintenance-save-message"
-          : "registration-save-message",
+          : id === forms[1] ? "registration-save-message" : "registration-capacity-message",
       ).textContent = "未保存の変更があります。";
     });
   function registrationStatus(status) {
-    $("registration-state").textContent = status.allowed
+    $("registration-state").textContent = status.capacity_limited ? "通常登録は人数上限に達しています" : status.allowed
       ? "通常登録を受付中"
       : status.invitation_allowed
         ? "招待からのみ受付中"
@@ -80,12 +89,15 @@ window.ADMIN_WORKFLOW.mount((host) => {
     const unlock = W.lock(controlsScope);
     $("operations-status").textContent = "運営設定を確認中…";
     try {
-      const [data, response] = await Promise.all([
+      const [data, response, capacity] = await Promise.all([
         host.getUsage(),
-        db.rpc("card_album_registration_status_v2"),
+        db.rpc("card_album_registration_status_v3"),
+        db.rpc("card_admin_registration_capacity_get"),
       ]);
       if (!current() || id !== request || atRevision !== revision) return;
       if (response.error) throw response.error;
+      if (capacity.error) throw capacity.error;
+      renderCapacity(capacity.data);
       if (
         !data?.settings ||
         !["open", "invitation", "closed"].includes(response.data?.mode)
@@ -139,7 +151,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
       $(messageId).textContent = "設定を保存しました。";
       // 関連する状態表示も再計算する。フォームの再取得・上書きは行わない。
       try {
-        const status = await db.rpc("card_album_registration_status_v2");
+        const status = await db.rpc("card_album_registration_status_v3");
         if (current() && atRequest === request) {
           if (!status.error && status.data) registrationStatus(status.data);
           else
@@ -235,6 +247,14 @@ window.ADMIN_WORKFLOW.mount((host) => {
         registrationStatus(data);
       },
     );
+  };
+  $("registration-capacity-controls").onsubmit = (event) => {
+    event.preventDefault();
+    const minutes = Number($("registration-capacity-minutes").value), maximum = Number($("registration-capacity-maximum").value);
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440 || !Number.isInteger(maximum) || maximum < 1 || maximum > 10000) {
+      $("registration-capacity-message").textContent = "期間は1〜1440分、人数は1〜10000人で入力してください。"; return;
+    }
+    save(forms[2], "registration-capacity-message", "card_admin_registration_capacity_save", {p_enabled:$("registration-capacity-enabled").checked,p_window_minutes:minutes,p_max_registrations:maximum,p_revision:capacityRevision}, renderCapacity);
   };
   $("registration-free-preset").onclick = () => {
     $("registration-db-limit").value = "450";
@@ -459,6 +479,7 @@ ${url}`;
     loading = saving = ready = invitationBusy = false;
     dirty.clear();
     maintenance = null;
+    capacityRevision = null;
     forms.forEach((id) => $(id).reset());
     root.querySelectorAll("button,input,select,textarea").forEach((control) => {
       control.disabled = false;
@@ -469,6 +490,8 @@ ${url}`;
       "registration-state",
       "maintenance-state",
       "registration-save-message",
+      "registration-capacity-message",
+      "registration-capacity-state",
       "maintenance-save-message",
       "invitation-message",
     ])

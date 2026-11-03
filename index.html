@@ -6,17 +6,17 @@
     <meta content="noindex,nofollow" name="robots" />
     <title>カードアルバム管理</title>
     <link href="./icon.png" rel="icon" />
-    <link href="./admin.css?v=20261030-admin-startup-fix-v3" rel="stylesheet" />
-    <script src="./startup.js?v=20261030-admin-startup-fix-v3"></script>
+    <link href="./admin.css?v=20261103-registration-capacity-v4" rel="stylesheet" />
+    <script src="./startup.js?v=20261103-registration-capacity-v4"></script>
     <script
       defer=""
-      src="./vendor/supabase.js?v=20261030-admin-startup-fix-v3"
+      src="./vendor/supabase.js?v=20261103-registration-capacity-v4"
     ></script>
-    <script defer="" src="./config.js?v=20261030-admin-startup-fix-v3"></script>
-    <script defer="" src="./catalog-cache.js?v=20261030-admin-startup-fix-v3"></script>
-    <script defer src="./primagi.js?v=20261030-admin-startup-fix-v3"></script>
-    <script defer src="./admin-workflow.js?v=20261030-admin-startup-fix-v3"></script>
-    <script defer="" src="./admin.js?v=20261030-admin-startup-fix-v3"></script>
+    <script defer="" src="./config.js?v=20261103-registration-capacity-v4"></script>
+    <script defer="" src="./catalog-cache.js?v=20261103-registration-capacity-v4"></script>
+    <script defer src="./primagi.js?v=20261103-registration-capacity-v4"></script>
+    <script defer src="./admin-workflow.js?v=20261103-registration-capacity-v4"></script>
+    <script defer="" src="./admin.js?v=20261103-registration-capacity-v4"></script>
     <link rel="apple-touch-icon" href="./icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="アルバム運営" />
@@ -744,6 +744,21 @@
               </form>
             </article>
             <article class="usage-panel">
+              <h2>通常登録の人数制限</h2>
+              <p class="muted">直近の指定時間内に登録を完了した人数で制限します。IDの発行だけでは数えません。招待登録は対象外です。</p>
+              <form id="registration-capacity-controls">
+                <label class="capacity-enabled"><input id="registration-capacity-enabled" type="checkbox">人数制限を有効にする</label>
+                <div class="registration-capacity-fields">
+                  <label>集計する期間（分）<input id="registration-capacity-minutes" type="number" min="1" max="1440" step="1" value="10" required></label>
+                  <label>最大登録人数（人）<input id="registration-capacity-maximum" type="number" min="1" max="10000" step="1" value="10" required></label>
+                </div>
+                <p class="muted" id="registration-capacity-state"></p>
+                <p class="muted">人数を減らしても既存アカウントは削除しません。設定変更で集計記録はリセットされません。</p>
+                <button class="primary" id="registration-capacity-save" disabled>人数制限を保存</button>
+                <p id="registration-capacity-message" role="status"></p>
+              </form>
+            </article>
+            <article class="usage-panel">
               <div class="section-heading"><h2>フォロワー向けの招待</h2><button type="button" id="invitation-reload">更新</button></div>
               <p class="muted">1人につき1つ発行してください。「招待のみ受付」のときも登録できます。「招待も停止」では登録できません。URLは一度開くと使用済みになります。</p>
               <p class="muted">再読み込み・再アクセスで再開できません。招待URLの再発行はいたしかねます。</p>
@@ -1076,11 +1091,11 @@
         </button>
       </div>
     </dialog>
-    <script defer src="./admin-operations.js?v=20261030-admin-startup-fix-v3"></script>
+    <script defer src="./admin-operations.js?v=20261103-registration-capacity-v4"></script>
     <script
       defer
-      src="./card-visibility-admin.js?v=20261030-admin-startup-fix-v3"
+      src="./card-visibility-admin.js?v=20261103-registration-capacity-v4"
     ></script>
-    <script defer src="./private-qr-admin.js?v=20261030-admin-startup-fix-v3"></script>
+    <script defer src="./private-qr-admin.js?v=20261103-registration-capacity-v4"></script>
   </body>
 </html>
