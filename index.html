@@ -759,6 +759,16 @@
               </form>
             </article>
             <article class="usage-panel">
+              <h2>ログインせずに利用</h2>
+              <form id="guest-browse-controls">
+                <label class="registration-toggle"><input id="guest-browse-enabled" type="checkbox" disabled>ログインせずに利用できるようにする</label>
+                <p id="guest-browse-state" role="status">設定を確認中…</p>
+                <p class="muted">停止するとログイン画面の「ログインせずに利用」を非表示にし、カード検索の閲覧専用ページに停止中の案内を表示します。ログイン後のアルバムと共有URLは引き続き利用できます。</p>
+                <button class="primary" id="guest-browse-save" disabled>設定を保存</button>
+                <p id="guest-browse-message" role="status"></p>
+              </form>
+            </article>
+            <article class="usage-panel">
               <div class="section-heading"><h2>フォロワー向けの招待</h2><button type="button" id="invitation-reload">更新</button></div>
               <p class="muted">1人につき1つ発行してください。「招待のみ受付」のときも登録できます。「招待も停止」では登録できません。URLは一度開くと使用済みになります。</p>
               <p class="muted">再読み込み・再アクセスで再開できません。招待URLの再発行はいたしかねます。</p>
@@ -1091,7 +1101,7 @@
         </button>
       </div>
     </dialog>
-    <script defer src="./admin-operations.js?v=20261103-registration-capacity-v4"></script>
+    <script defer src="./admin-operations.js?v=20261104-guest-browse-v32"></script>
     <script
       defer
       src="./card-visibility-admin.js?v=20261103-registration-capacity-v4"

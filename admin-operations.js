@@ -18,8 +18,15 @@ window.ADMIN_WORKFLOW.mount((host) => {
     ready = false;
   let maintenance = null,
     dirty = new Set();
-  const forms = ["maintenance-controls", "registration-controls", "registration-capacity-controls"];
-  let capacityRevision = null;
+  const forms = ["maintenance-controls", "registration-controls", "registration-capacity-controls", "guest-browse-controls"];
+  let capacityRevision = null, guestBrowseRevision = null;
+  function renderGuestBrowse(data) {
+    if (!data || typeof data.enabled !== "boolean" || !Number.isSafeInteger(data.revision)) throw Error("閲覧専用ページの設定を確認できません。設定SQLを確認してください。");
+    guestBrowseRevision = data.revision;
+    $("guest-browse-enabled").checked = data.enabled;
+    $("guest-browse-state").textContent = data.enabled ? "ログインせずに利用できます" : "ログインせずに利用を停止中";
+    $("guest-browse-state").classList.toggle("paused", !data.enabled);
+  }
   function renderCapacity(data) {
     if (!data || typeof data.enabled !== "boolean" || !Number.isSafeInteger(data.revision)) throw Error("人数制限の設定を確認できません。設定SQLを確認してください。");
     capacityRevision = data.revision;
@@ -49,7 +56,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
       $(
         id === forms[0]
           ? "maintenance-save-message"
-          : id === forms[1] ? "registration-save-message" : "registration-capacity-message",
+          : id === forms[1] ? "registration-save-message" : id === forms[2] ? "registration-capacity-message" : "guest-browse-message",
       ).textContent = "未保存の変更があります。";
     });
   function registrationStatus(status) {
@@ -89,15 +96,18 @@ window.ADMIN_WORKFLOW.mount((host) => {
     const unlock = W.lock(controlsScope);
     $("operations-status").textContent = "運営設定を確認中…";
     try {
-      const [data, response, capacity] = await Promise.all([
+      const [data, response, capacity, guest] = await Promise.all([
         host.getUsage(),
         db.rpc("card_album_registration_status_v3"),
         db.rpc("card_admin_registration_capacity_get"),
+        db.rpc("card_guest_browse_status"),
       ]);
       if (!current() || id !== request || atRevision !== revision) return;
       if (response.error) throw response.error;
       if (capacity.error) throw capacity.error;
       renderCapacity(capacity.data);
+      if (guest.error) throw guest.error;
+      renderGuestBrowse(guest.data);
       if (
         !data?.settings ||
         !["open", "invitation", "closed"].includes(response.data?.mode)
@@ -255,6 +265,13 @@ window.ADMIN_WORKFLOW.mount((host) => {
       $("registration-capacity-message").textContent = "期間は1〜1440分、人数は1〜10000人で入力してください。"; return;
     }
     save(forms[2], "registration-capacity-message", "card_admin_registration_capacity_save", {p_enabled:$("registration-capacity-enabled").checked,p_window_minutes:minutes,p_max_registrations:maximum,p_revision:capacityRevision}, renderCapacity);
+  };
+  $("guest-browse-controls").onsubmit = (event) => {
+    event.preventDefault();
+    save(forms[3], "guest-browse-message", "card_admin_guest_browse_save", {
+      p_enabled: $("guest-browse-enabled").checked,
+      p_revision: guestBrowseRevision,
+    }, renderGuestBrowse);
   };
   $("registration-free-preset").onclick = () => {
     $("registration-db-limit").value = "450";
@@ -479,7 +496,7 @@ ${url}`;
     loading = saving = ready = invitationBusy = false;
     dirty.clear();
     maintenance = null;
-    capacityRevision = null;
+    capacityRevision = guestBrowseRevision = null;
     forms.forEach((id) => $(id).reset());
     root.querySelectorAll("button,input,select,textarea").forEach((control) => {
       control.disabled = false;
@@ -493,6 +510,8 @@ ${url}`;
       "registration-capacity-message",
       "registration-capacity-state",
       "maintenance-save-message",
+      "guest-browse-message",
+      "guest-browse-state",
       "invitation-message",
     ])
       $(id).textContent = "";
