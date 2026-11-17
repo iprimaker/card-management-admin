@@ -653,7 +653,7 @@
         .slice((cardPage - 1) * pageSize, cardPage * pageSize)
         .map(
           (c) =>
-            `<article class="admin-card">${c.front ? `<img src="${esc(c.front)}" alt="${esc(c.name || c.code)}" loading="lazy">` : '<div class="pending-no-image">画像未登録</div>'}<div class="catalog-description"><h2>${esc(c.name || "カード名未設定")}</h2><p class="muted">${esc([c.code,c.rarity,c.character].filter(Boolean).join(" · "))}</p><p class="muted">${esc(c.game === "aikatsu" ? "アイカツ！アンコール" : c.family || "アイプリ")}</p></div>${overrides.has(c.id) ? '<span class="override-badge">修正を適用中</span>' : ""}${missingCardBadge(c)}${c._pendingId ? `<span class="pending-badge">SQL保留・根拠確認待ち</span><button data-pending-edit="${esc(c._pendingId)}">編集・正式登録</button>` : `<div class="catalog-row-actions"><button type="button" data-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-card-delete="${esc(c.id)}">削除</button></div>`}</article>`,
+            `<article class="admin-card">${c.front ? `<img src="${esc(c.front)}" alt="${esc(c.name || c.code)}" loading="lazy">` : '<div class="pending-no-image">画像未登録</div>'}<div class="catalog-description"><h2>${esc(c.name || "カード名未設定")}</h2><p class="muted">${esc([c.code,c.rarity,c.character].filter(Boolean).join(" · "))}</p><p class="muted">${esc(c.game === "aikatsu" ? "アイカツ！アンコール" : c.family || "アイプリ")}</p></div>${overrides.has(c.id) ? '<span class="override-badge">修正を適用中</span>' : ""}${missingCardBadge(c)}${c._pendingId ? `<span class="pending-badge">SQL保留・根拠確認待ち</span><button data-pending-edit="${esc(c._pendingId)}">編集・正式登録</button>` : `<div class="catalog-row-actions"><button type="button" data-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-card-delete="${esc(c.id)}">強制削除</button></div>`}</article>`,
         )
         .join("");
       $("card-page").textContent =
@@ -2860,11 +2860,14 @@
     async function deleteCatalogEntry(kind, item, button) {
       if (!requireAdminAction() || button.disabled) return;
       const label = item.name || item.code || item.id;
-      if (!window.confirm(`「${label}」を削除しますか？`)) return;
+      const detail = kind === "card"
+        ? "このカードの所持記録・お気に入り・交換希望・QR・公開設定も削除されます。"
+        : "このコーデの一式所持記録・お気に入り・交換希望・フルコーデのQR・公開設定も削除されます。パーツとその所持記録・QRは残ります。";
+      if (!window.confirm(`「${label}」を強制削除しますか？\n\n${detail}\nこの操作は元に戻せません。`)) return;
       const current = generation;
       button.disabled = true;
       try {
-        await adminRPC("card_admin_catalog_delete_v1", { p_kind: kind, p_id: item.id });
+        await adminRPC("card_admin_catalog_delete_v2", { p_kind: kind, p_id: item.id });
         if (generation !== current || !authorized) return;
         if (kind === "card") {
           invalidateCatalog();
@@ -2901,7 +2904,7 @@
         $("verse-admin-list").innerHTML = [...verseRows.values()]
           .map(
             (c) =>
-              `<article class="admin-card verse-catalog-card">${c.image ? `<img src="${esc(window.CARD_PRIMAGI.image(c.thumbnail || c.image))}" alt="${esc(c.name)}" loading="lazy">` : `<div class="pending-no-image">画像未登録</div>`}<div class="catalog-description"><h2>${esc(c.name)}</h2><p class="muted">${esc([c.code,c.rarity].filter(Boolean).join(" · "))}</p><p class="muted">${c.family === "primagi" ? "プリマジ" : c.family === "onegai" ? "おねがい" : "ひみつ"} · ${c.part_ids.length}部位</p></div><div class="catalog-row-actions"><button type="button" data-verse-admin-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-verse-admin-delete="${esc(c.id)}">削除</button></div></article>`,
+              `<article class="admin-card verse-catalog-card">${c.image ? `<img src="${esc(window.CARD_PRIMAGI.image(c.thumbnail || c.image))}" alt="${esc(c.name)}" loading="lazy">` : `<div class="pending-no-image">画像未登録</div>`}<div class="catalog-description"><h2>${esc(c.name)}</h2><p class="muted">${esc([c.code,c.rarity].filter(Boolean).join(" · "))}</p><p class="muted">${c.family === "primagi" ? "プリマジ" : c.family === "onegai" ? "おねがい" : "ひみつ"} · ${c.part_ids.length}部位</p></div><div class="catalog-row-actions"><button type="button" data-verse-admin-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-verse-admin-delete="${esc(c.id)}">強制削除</button></div></article>`,
           )
           .join("");
         $("verse-admin-prev").disabled = verseAdminPage === 0;
