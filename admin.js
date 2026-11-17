@@ -653,7 +653,7 @@
         .slice((cardPage - 1) * pageSize, cardPage * pageSize)
         .map(
           (c) =>
-            `<article class="admin-card">${c.front ? `<img src="${esc(c.front)}" alt="${esc(c.name || c.code)}" loading="lazy">` : '<div class="pending-no-image">画像未登録</div>'}<div class="catalog-description"><h2>${esc(c.name || "カード名未設定")}</h2><p class="muted">${esc([c.code,c.rarity,c.character].filter(Boolean).join(" · "))}</p><p class="muted">${esc(c.game === "aikatsu" ? "アイカツ！アンコール" : c.family || "アイプリ")}</p></div>${overrides.has(c.id) ? '<span class="override-badge">修正を適用中</span>' : ""}${missingCardBadge(c)}${c._pendingId ? `<span class="pending-badge">SQL保留・根拠確認待ち</span><button data-pending-edit="${esc(c._pendingId)}">編集・正式登録</button>` : `<div class="catalog-row-actions"><button type="button" data-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-card-delete="${esc(c.id)}">強制削除</button></div>`}</article>`,
+            `<article class="admin-card">${c.front ? window.CARD_IMAGE_TRANSFORM.wrap(`<img src="${esc(c.front)}" alt="${esc(c.name || c.code)}" loading="lazy">`, c.frontTransform) : '<div class="pending-no-image">画像未登録</div>'}<div class="catalog-description"><h2>${esc(c.name || "カード名未設定")}</h2><p class="muted">${esc([c.code,c.rarity,c.character].filter(Boolean).join(" · "))}</p><p class="muted">${esc(c.game === "aikatsu" ? "アイカツ！アンコール" : c.family || "アイプリ")}</p></div>${overrides.has(c.id) ? '<span class="override-badge">修正を適用中</span>' : ""}${missingCardBadge(c)}${c._pendingId ? `<span class="pending-badge">SQL保留・根拠確認待ち</span><button data-pending-edit="${esc(c._pendingId)}">編集・正式登録</button>` : `<div class="catalog-row-actions"><button type="button" data-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-card-delete="${esc(c.id)}">強制削除</button></div>`}</article>`,
         )
         .join("");
       $("card-page").textContent =
@@ -661,6 +661,46 @@
       $("card-prev").disabled = cardPage === 1;
       $("card-next").disabled = cardPage * pageSize >= cards.length;
     }
+    function setEditorFrontTransform(value) {
+      const transform = window.CARD_IMAGE_TRANSFORM.normalize(value);
+      $("edit-front-crop").checked = !!transform;
+      for (const [key, initial] of Object.entries(window.CARD_IMAGE_TRANSFORM.defaults)) {
+        $("edit-form").elements.namedItem("crop-" + key).value = transform?.[key] ?? initial;
+      }
+      updateEditorFrontPreview();
+    }
+    function editorFrontTransform() {
+      if (!$("edit-front-crop").checked) return null;
+      const fields = $("edit-form").elements;
+      const values = Object.keys(window.CARD_IMAGE_TRANSFORM.defaults).map((key) => [
+        key, fields.namedItem("crop-" + key).valueAsNumber,
+      ]);
+      return window.CARD_IMAGE_TRANSFORM.normalize(Object.fromEntries(values));
+    }
+    function updateEditorFrontPreview() {
+      const input = $("edit-fields").querySelector('[data-field="front"]');
+      const enabled = $("edit-front-crop").checked;
+      const controls = $("edit-front-crop-controls");
+      controls.hidden = !enabled;
+      for (const field of controls.querySelectorAll("input")) field.disabled = !enabled;
+      const image = $("edit-image");
+      const url = input?.value.trim() || "";
+      if (url.startsWith("https://")) {
+        if (image.getAttribute("src") !== url) image.src = url;
+        image.hidden = false;
+      } else {
+        image.removeAttribute("src");
+        image.hidden = true;
+      }
+      window.CARD_IMAGE_TRANSFORM.apply(image, editorFrontTransform());
+    }
+    $("edit-form").addEventListener("input", (event) => {
+      if (event.target.matches('[data-field="front"], #edit-front-crop, input[name^="crop-"]')) {
+        updateEditorFrontPreview();
+      }
+    });
+    $("edit-front-crop-reset").onclick = () => setEditorFrontTransform(null);
+
     function openEditor(id) {
       const base = baseCards.find((c) => c.id === id);
       if (!base || !authorized) return;
@@ -668,7 +708,6 @@
       const card = combined(base);
       $("edit-title").textContent = card.name || card.code;
       $("edit-id").textContent = card.id;
-      $("edit-image").src = card.front;
       $("edit-message").textContent = "";
       const keys =
         base.game === "aikatsu"
@@ -710,6 +749,7 @@
           return `<label>${labels[key]}${arrayFields.has(key) ? `<textarea data-field="${key}" placeholder="1行に1項目">${esc(value)}</textarea>` : `<input data-field="${key}" value="${esc(value)}" ${["name", "code"].includes(key) ? "required" : ""} maxlength="2000">`}</label>`;
         })
         .join("");
+      setEditorFrontTransform(card.frontTransform);
       $("override-remove").disabled = !overrides.has(id);
       $("edit-dialog").showModal();
     }
@@ -740,6 +780,12 @@
             delete patch[key];
           else patch[key] = value;
         });
+        const transform = editorFrontTransform();
+        if ($("edit-front-crop").checked && (!transform || !String(patch.front ?? editing.front ?? "").trim())) {
+          throw Error("表面画像URLと、調整欄の範囲内の数値を入力してください。");
+        }
+        if (transform) patch.frontTransform = transform;
+        else delete patch.frontTransform;
         const result = Object.keys(patch).length
           ? await db
               .from("card_catalog_overrides")

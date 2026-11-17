@@ -16,7 +16,8 @@
     <script defer="" src="./catalog-cache.js?v=20261117-admin-catalog-v1"></script>
     <script defer src="./primagi.js?v=20261117-admin-catalog-v1"></script>
     <script defer src="./admin-workflow.js?v=20261117-admin-catalog-v1"></script>
-    <script defer="" src="./admin.js?v=20261117-force-delete-v2"></script>
+    <script defer src="./card-image-transform.js?v=20261117-image-adjust-v1"></script>
+    <script defer="" src="./admin.js?v=20261117-image-adjust-v1"></script>
     <link rel="apple-touch-icon" href="./icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="アルバム運営" />
@@ -819,8 +820,23 @@
         </div>
         <p class="muted" id="edit-id"></p>
         <div class="editor-preview">
-          <img alt="カード表面" id="edit-image" />
-          <div class="edit-fields" id="edit-fields"></div>
+          <div id="edit-front-preview">
+            <img alt="カード表面のプレビュー" id="edit-image" />
+          </div>
+          <div>
+            <div class="edit-fields" id="edit-fields"></div>
+            <fieldset class="card-crop-editor">
+              <legend>表面画像の表示範囲</legend>
+              <label><input type="checkbox" id="edit-front-crop"> 表面画像をトリミング・回転する</label>
+              <div class="card-crop-controls" id="edit-front-crop-controls" hidden>
+                <label>左右の位置（%）<input name="crop-x" type="number" min="-1000" max="1000" step="any" value="0"></label>
+                <label>上下の位置（%）<input name="crop-y" type="number" min="-1000" max="1000" step="any" value="0"></label>
+                <label>拡大率（倍率）<input name="crop-zoom" type="number" min="0.25" max="20" step="any" value="1"></label>
+                <label>回転（°）<input name="crop-angle" type="number" min="-180" max="180" step="any" value="0"></label>
+                <button id="edit-front-crop-reset" type="button">初期値に戻す</button>
+              </div>
+            </fieldset>
+          </div>
         </div>
         <p id="edit-message" role="status"></p>
         <div class="editor-actions">
