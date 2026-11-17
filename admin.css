@@ -2956,3 +2956,19 @@ tbody td {
 .capacity-enabled { display:flex; align-items:center; gap:9px; }
 .capacity-enabled input[type="checkbox"] { width:18px; min-width:18px; height:18px; }
 @media(max-width:600px) { .registration-capacity-fields {grid-template-columns:1fr;} }
+
+/* Registered cards and coordinates use the same compact list. */
+#admin-cards .admin-card-list, #admin-verse .admin-card-list { grid-template-columns: 1fr; gap: .65rem; }
+#admin-cards .admin-card, #admin-verse .admin-card { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; text-align: left; gap: .45rem 1rem; padding: .75rem; }
+#admin-cards .admin-card > img, #admin-verse .admin-card > img { width: 64px; height: 84px; object-fit: contain; grid-row: 1 / span 3; }
+.catalog-description { min-width: 0; grid-column: 2; }
+.catalog-description h2 { font-size: 1rem; margin: 0 0 .25rem; overflow-wrap: anywhere; }
+.catalog-description p { margin: .15rem 0; }
+.catalog-row-actions { display: flex; flex-wrap: wrap; gap: .4rem; grid-column: 3; grid-row: 1; }
+#admin-cards .admin-card > :is(.override-badge,.pending-badge,.missing-card-badge) { grid-column: 2; justify-self: start; }
+#admin-cards .admin-card > button { grid-column: 3; }
+@media (max-width: 490px) {
+  #admin-cards .admin-card, #admin-verse .admin-card { grid-template-columns: 54px minmax(0, 1fr); gap: .4rem .65rem; }
+  #admin-cards .admin-card > img, #admin-verse .admin-card > img { width: 54px; height: 72px; }
+  .catalog-row-actions, #admin-cards .admin-card > button { grid-column: 2; grid-row: auto; }
+}

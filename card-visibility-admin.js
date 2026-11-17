@@ -10,7 +10,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
 </div>
 <button type="button" data-refresh>一覧を更新</button>
 </div>
-<p class="publishing-explanation">発売前・シークレットの公開設定はこちらで管理します。情報修正や手動追加の保留候補は<button type="button" data-manual-pending>カード情報の保留一覧</button>で確認できます。</p>
+<p class="publishing-explanation">発売前・シークレットの公開設定はこちらで管理します。情報修正や手動追加の保留候補は<button type="button" data-manual-pending>手動追加のカード候補</button>で確認できます。</p>
 <p data-status role="status" aria-live="polite">
 </p>
 <div class="publishing-layout">
@@ -446,10 +446,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
   };
   $("[data-approve]").onclick = () => save(true);
   $("[data-manual-pending]").onclick = () => {
-    if (host.showPage("cards") === false) return;
-    const state = document.getElementById("admin-state");
-    state.value = "pending";
-    state.dispatchEvent(new Event("change"));
+    host.showPage("manual");
   };
   $("[data-refresh]").onclick = () => {
     if (!busy && !loading && allowDiscard()) load({ discard: true });

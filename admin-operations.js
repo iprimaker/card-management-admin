@@ -33,7 +33,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
     $("registration-capacity-enabled").checked = data.enabled;
     $("registration-capacity-minutes").value = data.window_minutes;
     $("registration-capacity-maximum").value = data.max_registrations;
-    $("registration-capacity-state").textContent = `${data.window_minutes}分あたり最大${data.max_registrations}人 ／ 現在${data.used}人` + (data.enabled ? (data.limited ? " · 上限に達しています" : " · 制限は有効です") : " · 制限は無効です");
+    $("registration-capacity-state").textContent = `${data.window_minutes}分あたり最大${data.max_registrations}件発行 ／ 期間内 ${data.used}件` + (data.enabled ? (data.limited ? " · 上限に達しています" : " · 制限は有効です") : " · 制限は無効です");
   }
   const enableSettings = (enabled) =>
     forms.forEach((id) =>
@@ -60,7 +60,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
       ).textContent = "未保存の変更があります。";
     });
   function registrationStatus(status) {
-    $("registration-state").textContent = status.capacity_limited ? "通常登録は人数上限に達しています" : status.allowed
+    $("registration-state").textContent = status.capacity_limited ? "通常のID発行は上限に達しています" : status.allowed
       ? "通常登録を受付中"
       : status.invitation_allowed
         ? "招待からのみ受付中"

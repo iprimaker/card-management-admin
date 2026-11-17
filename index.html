@@ -6,17 +6,17 @@
     <meta content="noindex,nofollow" name="robots" />
     <title>カードアルバム管理</title>
     <link href="./icon.png" rel="icon" />
-    <link href="./admin.css?v=20261103-registration-capacity-v4" rel="stylesheet" />
-    <script src="./startup.js?v=20261103-registration-capacity-v4"></script>
+    <link href="./admin.css?v=20261117-admin-catalog-v1" rel="stylesheet" />
+    <script src="./startup.js?v=20261117-admin-catalog-v1"></script>
     <script
       defer=""
-      src="./vendor/supabase.js?v=20261103-registration-capacity-v4"
+      src="./vendor/supabase.js?v=20261117-admin-catalog-v1"
     ></script>
-    <script defer="" src="./config.js?v=20261103-registration-capacity-v4"></script>
-    <script defer="" src="./catalog-cache.js?v=20261103-registration-capacity-v4"></script>
-    <script defer src="./primagi.js?v=20261103-registration-capacity-v4"></script>
-    <script defer src="./admin-workflow.js?v=20261103-registration-capacity-v4"></script>
-    <script defer="" src="./admin.js?v=20261103-registration-capacity-v4"></script>
+    <script defer="" src="./config.js?v=20261117-admin-catalog-v1"></script>
+    <script defer="" src="./catalog-cache.js?v=20261117-admin-catalog-v1"></script>
+    <script defer src="./primagi.js?v=20261117-admin-catalog-v1"></script>
+    <script defer src="./admin-workflow.js?v=20261117-admin-catalog-v1"></script>
+    <script defer="" src="./admin.js?v=20261117-admin-catalog-v1"></script>
     <link rel="apple-touch-icon" href="./icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="アルバム運営" />
@@ -88,7 +88,7 @@
           >
             <path d="M4 5h16v14H4z M8 9h8 M8 13h5 M8 16h8"></path></svg
           >コーデ情報</button
-        ><button type="button" data-page="imports">
+        ><button type="button" data-page="manual">手動追加</button><button type="button" data-page="imports">
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -237,13 +237,14 @@
         <p id="admin-account"></p>
         <section hidden="" id="admin-cards">
           <div class="section-heading">
-            <h1>カード情報の修正</h1>
-            <div class="heading-actions">
+            <h1 id="card-management-title">カード情報</h1>
+            <div class="heading-actions" id="catalog-card-actions">
               <button id="force-sync">登録情報を再読み込み</button
               ><button hidden="" id="reload-cards">再表示</button>
             </div>
           </div>
-          <p>手動SQLで登録した情報を修正します。所持記録のIDは維持されます。</p>
+          <p id="card-management-help">登録済みカードを検索し、情報の編集や削除ができます。</p>
+          <div id="manual-entry-tools" hidden>
           <article
             aria-labelledby="sync-progress-title"
             class="sync-progress-panel"
@@ -261,6 +262,14 @@
               ページ単位の進捗です。新しい取得先が見つかると総数が増え、％が下がる場合があります。画像の文字読み取りは含みません。
             </p>
           </article>
+          <div class="pending-tools">
+            <button type="button" id="pending-new" class="primary">
+              カード候補を追加</button
+            ><button type="button" id="pending-refresh">
+              カード候補を更新</button
+            ><button type="button" id="manual-verse-new">コーデを追加</button><span>カード候補は正式登録するまで一般側には表示されません</span>
+          </div>
+          </div>
           <div class="search-row">
             <input
               aria-label="カード名・コードで検索"
@@ -271,10 +280,6 @@
               <option value="">すべて</option>
               <option value="aikatsu">アイカツ！アンコール</option>
               <option value="aipri">アイプリ</option></select
-            ><select id="admin-state" aria-label="登録状態">
-              <option value="registered">登録済み</option>
-              <option value="pending">未登録カード・確認待ち</option>
-              <option value="all">登録済み＋未登録候補</option></select
             ><select id="admin-missing" aria-label="未登録情報で絞り込む">
               <option value="all">すべてのカード</option>
               <option value="missing">情報未登録のみ</option>
@@ -287,13 +292,6 @@
               <option value="front">表面画像が未登録</option>
               <option value="back">裏面画像が未登録</option>
             </select>
-          </div>
-          <div class="pending-tools">
-            <button type="button" id="pending-new" class="primary">
-              ＋ SQL保留候補を追加</button
-            ><button type="button" id="pending-refresh">
-              SQL保留一覧を更新</button
-            ><span>正式登録するまで一般側には表示されません</span>
           </div>
           <p id="admin-count"></p>
           <div class="admin-card-list" id="admin-card-list"></div>
@@ -744,17 +742,17 @@
               </form>
             </article>
             <article class="usage-panel">
-              <h2>通常登録の人数制限</h2>
-              <p class="muted">直近の指定時間内に登録を完了した人数で制限します。IDの発行だけでは数えません。招待登録は対象外です。</p>
+              <h2>通常登録のID発行制限</h2>
+              <p class="muted">通常のアルバムIDを発行した時刻から集計します。発行済みのIDは有効期限内に登録を続けられます。招待登録は対象外です。</p>
               <form id="registration-capacity-controls">
-                <label class="capacity-enabled"><input id="registration-capacity-enabled" type="checkbox">人数制限を有効にする</label>
+                <label class="capacity-enabled"><input id="registration-capacity-enabled" type="checkbox">ID発行制限を有効にする</label>
                 <div class="registration-capacity-fields">
-                  <label>集計する期間（分）<input id="registration-capacity-minutes" type="number" min="1" max="1440" step="1" value="10" required></label>
-                  <label>最大登録人数（人）<input id="registration-capacity-maximum" type="number" min="1" max="10000" step="1" value="10" required></label>
+                  <label>ID発行の集計期間（分）<input id="registration-capacity-minutes" type="number" min="1" max="1440" step="1" value="10" required></label>
+                  <label>最大発行数（件）<input id="registration-capacity-maximum" type="number" min="1" max="10000" step="1" value="10" required></label>
                 </div>
                 <p class="muted" id="registration-capacity-state"></p>
                 <p class="muted">人数を減らしても既存アカウントは削除しません。設定変更で集計記録はリセットされません。</p>
-                <button class="primary" id="registration-capacity-save" disabled>人数制限を保存</button>
+                <button class="primary" id="registration-capacity-save" disabled>発行制限を保存</button>
                 <p id="registration-capacity-message" role="status"></p>
               </form>
             </article>
@@ -781,7 +779,7 @@
         </section>
         <section id="admin-verse" hidden="">
           <div class="section-heading">
-            <h1>コーデ情報の修正</h1>
+            <h1>コーデ情報</h1>
             <div class="heading-actions">
               <button type="button" id="reload-verse">
                 登録情報を再読み込み
@@ -789,7 +787,7 @@
             </div>
           </div>
           <p>
-            手動SQLで登録したコーデ・パーツ情報を修正します。所持記録のIDは維持されます。
+            登録済みコーデを検索し、コーデと構成部位の情報を編集できます。
           </p>
           <div class="search-row verse-search-row">
             <input
@@ -1104,8 +1102,8 @@
     <script defer src="./admin-operations.js?v=20261104-guest-browse-v32"></script>
     <script
       defer
-      src="./card-visibility-admin.js?v=20261103-registration-capacity-v4"
+      src="./card-visibility-admin.js?v=20261117-admin-catalog-v1"
     ></script>
-    <script defer src="./private-qr-admin.js?v=20261103-registration-capacity-v4"></script>
+    <script defer src="./private-qr-admin.js?v=20261117-admin-catalog-v1"></script>
   </body>
 </html>

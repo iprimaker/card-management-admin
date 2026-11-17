@@ -622,7 +622,7 @@
           .trim(),
         game = $("admin-game").value,
         missingMode = $("admin-missing").value;
-      const state = $("admin-state").value;
+      const state = location.hash === "#manual" ? "pending" : "registered";
       const registered = state === "pending" ? [] : baseCards.map(combined);
       const drafts =
         state === "registered"
@@ -653,7 +653,7 @@
         .slice((cardPage - 1) * pageSize, cardPage * pageSize)
         .map(
           (c) =>
-            `<article class="admin-card">${c.front ? `<img src="${esc(c.front)}" alt="${esc(c.name || c.code)}" loading="lazy">` : '<div class="pending-no-image">画像未登録</div>'}<p class="muted">${esc(c.code)} · ${esc(c.rarity)}</p><p>${esc(c.name || "カード名未設定")}</p>${overrides.has(c.id) ? '<span class="override-badge">修正を適用中</span>' : ""}${missingCardBadge(c)}${c._pendingId ? `<span class="pending-badge">SQL保留・根拠確認待ち</span><button data-pending-edit="${esc(c._pendingId)}">編集・正式登録</button>` : `<button data-edit="${esc(c.id)}">情報を編集</button>`}</article>`,
+            `<article class="admin-card">${c.front ? `<img src="${esc(c.front)}" alt="${esc(c.name || c.code)}" loading="lazy">` : '<div class="pending-no-image">画像未登録</div>'}<div class="catalog-description"><h2>${esc(c.name || "カード名未設定")}</h2><p class="muted">${esc([c.code,c.rarity,c.character].filter(Boolean).join(" · "))}</p><p class="muted">${esc(c.game === "aikatsu" ? "アイカツ！アンコール" : c.family || "アイプリ")}</p></div>${overrides.has(c.id) ? '<span class="override-badge">修正を適用中</span>' : ""}${missingCardBadge(c)}${c._pendingId ? `<span class="pending-badge">SQL保留・根拠確認待ち</span><button data-pending-edit="${esc(c._pendingId)}">編集・正式登録</button>` : `<div class="catalog-row-actions"><button type="button" data-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-card-delete="${esc(c.id)}">削除</button></div>`}</article>`,
         )
         .join("");
       $("card-page").textContent =
@@ -1029,7 +1029,7 @@
         request = ++usersRequest;
       message("登録者を読み込み中…");
       const { data, error } = await db.rpc(
-        "card_admin_users_qr_filtered",
+        "card_admin_users_fast_v1",
         userArgs(),
       );
       if (!authorized || key !== userKey() || request !== usersRequest) return;
@@ -1065,7 +1065,7 @@
         request = usersRequest;
       try {
         const { data, error } = await db.rpc(
-          "card_admin_users_qr_filtered",
+          "card_admin_users_fast_v1",
           userArgs(false),
         );
         if (!authorized || key !== userKey() || request !== usersRequest)
@@ -1647,11 +1647,6 @@
     }
     $("pending-new").onclick = () => openPending();
     $("pending-refresh").onclick = () => loadPending(true);
-    $("admin-state").onchange = async () => {
-      cardPage = 1;
-      if ($("admin-state").value !== "registered") await loadPending();
-      renderCards();
-    };
     $("pending-form").onsubmit = async (event) => {
       event.preventDefault();
       await savePending();
@@ -1926,7 +1921,7 @@
         "verse",
         "announcements",
       ])
-        $("admin-" + id).hidden = id !== page;
+        $("admin-" + id).hidden = id !== page && !(id === "cards" && page === "manual");
       document
         .querySelectorAll("[data-page]")
         .forEach((b) => {
@@ -1936,10 +1931,21 @@
         });
       message("");
       clearInterval(syncProgressTimer);
-      if (page === "cards") {
+      const manual = page === "manual";
+      $("manual-entry-tools").hidden = !manual;
+      $("catalog-card-actions").hidden = manual;
+      $("card-management-title").textContent = manual ? "手動追加" : "カード情報";
+      $("card-management-help").textContent = manual
+        ? "カードの候補を保存・正式登録するか、新しいコーデを登録できます。"
+        : "登録済みカードを検索し、情報の編集や削除ができます。";
+      if (page === "cards" || manual) {
+        cardPage = 1;
+        renderCards();
         loadCards();
-        if ($("admin-state").value !== "registered") loadPending();
-        refreshSyncProgress();
+        if (manual) {
+          loadPending();
+          refreshSyncProgress();
+        }
       }
       if (page === "announcements") loadAnnouncements();
       if (page === "imports") loadImports();
@@ -2078,6 +2084,11 @@
     $("admin-card-list").onclick = (e) => {
       const b = e.target.closest("[data-edit]");
       if (b) openEditor(b.dataset.edit);
+      const deleting = e.target.closest("[data-card-delete]");
+      if (deleting) {
+        const card = baseCards.find(c => c.id === deleting.dataset.cardDelete);
+        if (card) void deleteCatalogEntry("card", combined(card), deleting);
+      }
       const draft = e.target.closest("[data-pending-edit]");
       if (draft) openPending(draft.dataset.pendingEdit);
     };
@@ -2846,6 +2857,30 @@
         throw Error("ログインしてください");
       return data;
     }
+    async function deleteCatalogEntry(kind, item, button) {
+      if (!requireAdminAction() || button.disabled) return;
+      const label = item.name || item.code || item.id;
+      if (!window.confirm(`「${label}」を削除しますか？`)) return;
+      const current = generation;
+      button.disabled = true;
+      try {
+        await adminRPC("card_admin_catalog_delete_v1", { p_kind: kind, p_id: item.id });
+        if (generation !== current || !authorized) return;
+        if (kind === "card") {
+          invalidateCatalog();
+          baseCards = baseCards.filter(c => c.id !== item.id);
+          overrides.delete(item.id);
+          renderCards();
+          await loadCards(true);
+        } else {
+          if (verseRows.size === 1 && verseAdminPage > 0) verseAdminPage--;
+          await loadVerseAdmin();
+        }
+        if (generation === current && authorized) message("削除しました。");
+      } catch (error) {
+        if (generation === current && authorized) message(errorText(error));
+      } finally { button.disabled = false; }
+    }
     async function loadVerseAdmin() {
       if (!requireAdminAction()) return;
       const request = ++verseRequest,
@@ -2866,7 +2901,7 @@
         $("verse-admin-list").innerHTML = [...verseRows.values()]
           .map(
             (c) =>
-              `<article class="admin-card verse-catalog-card">${c.image ? `<img src="${esc(window.CARD_PRIMAGI.image(c.thumbnail || c.image))}" alt="${esc(c.name)}" loading="lazy">` : `<div class="pending-no-image">画像未登録</div>`}<p class="muted">${esc(c.code)} · ${esc(c.rarity || "未分類")}</p><p>${esc(c.name)}</p><p class="muted">${c.family === "primagi" ? "プリマジ" : c.family === "onegai" ? "おねがい" : "ひみつ"} · ${c.part_ids.length}パーツ</p><button type="button" data-verse-admin-edit="${esc(c.id)}">情報を編集</button></article>`,
+              `<article class="admin-card verse-catalog-card">${c.image ? `<img src="${esc(window.CARD_PRIMAGI.image(c.thumbnail || c.image))}" alt="${esc(c.name)}" loading="lazy">` : `<div class="pending-no-image">画像未登録</div>`}<div class="catalog-description"><h2>${esc(c.name)}</h2><p class="muted">${esc([c.code,c.rarity].filter(Boolean).join(" · "))}</p><p class="muted">${c.family === "primagi" ? "プリマジ" : c.family === "onegai" ? "おねがい" : "ひみつ"} · ${c.part_ids.length}部位</p></div><div class="catalog-row-actions"><button type="button" data-verse-admin-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-verse-admin-delete="${esc(c.id)}">削除</button></div></article>`,
           )
           .join("");
         $("verse-admin-prev").disabled = verseAdminPage === 0;
@@ -2883,17 +2918,32 @@
     const verseField = (label, key, value, type = "text") =>
       `<label>${label}<input data-verse-field="${key}" type="${type}" value="${esc(value ?? "")}" ${type === "number" ? 'min="0" max="1000000" step="1"' : 'maxlength="2000"'}></label>`;
     $("verse-admin-list").onclick = (event) => {
+      const deleting = event.target.closest("[data-verse-admin-delete]");
+      if (deleting) {
+        const item = verseRows.get(deleting.dataset.verseAdminDelete);
+        if (item) void deleteCatalogEntry("coordinate", item, deleting);
+        return;
+      }
       const button = event.target.closest("[data-verse-admin-edit]");
       if (!button || !requireAdminAction()) return;
       verseEditing = verseRows.get(button.dataset.verseAdminEdit);
       if (!verseEditing) return;
-      const c = verseEditing;
-      $("verse-editor-title").textContent = c.name;
+      renderVerseEditor(verseEditing);
+    };
+    $("manual-verse-new").onclick = () => {
+      if (!requireAdminAction()) return;
+      verseEditing = { id: null, family: "onegai", name: "", appearances: [],
+        parts: ["トップス","ボトムス","ワンピ","シューズ","アクセ"].map((slot, i) => ({ id: i + 1, slot, codes: [] })) };
+      renderVerseEditor(verseEditing);
+    };
+    function renderVerseEditor(c) {
+      $("verse-editor-title").textContent = c.id ? c.name : "コーデを手動追加";
+      $("verse-editor-save").textContent = c.id ? "変更を保存" : "コーデを登録";
       $("verse-editor-fields").innerHTML =
-        `<fieldset class="verse-edit-coordinate"><legend>フルコーデ</legend><p class="muted">ID：${esc(c.id)}</p><div class="editor-preview verse-editor-preview">${c.image ? `<img src="${esc(window.CARD_PRIMAGI.image(c.image, 900))}" alt="フルコーデ">` : ""}<div class="edit-fields verse-edit-grid">${verseField("コーデ名", "name", c.name)}${verseField("フルコーデコード", "code", c.code)}${verseField("レアリティ", "rarity", c.rarity)}${verseField("画像URL", "image", c.image, "url")}${verseField("一覧画像URL", "thumbnail", c.thumbnail, "url")}</div></div><label>だん・キャンペーン情報（JSON配列）<textarea data-verse-field="appearances" rows="5">${esc(JSON.stringify(c.appearances, null, 2))}</textarea></label></fieldset><h3>構成パーツ</h3>${c.parts.map((p) => `<fieldset data-verse-part="${p.id}"><legend>${esc(p.slot)} · ID ${p.id}</legend><div class="verse-part-editor">${p.image ? `<img src="${esc(window.CARD_PRIMAGI.image(p.image, 700))}" alt="${esc(p.slot)}" loading="lazy">` : ""}<div class="verse-edit-grid">${verseField("部位", "slot", p.slot)}${verseField(c.family === "primagi" ? "ワッチャ（未確認は空欄）" : "バズパワー（未確認は空欄）", "buzz", p.buzz, "number")}${verseField("コード（カンマ区切り）", "codes", p.codes.join(", "))}${verseField("画像URL", "image", p.image, "url")}</div></div></fieldset>`).join("")}`;
+        `<fieldset class="verse-edit-coordinate"><legend>フルコーデ</legend>${c.id ? `<p class="muted">ID：${esc(c.id)}</p>` : '<label>シリーズ<select id="manual-verse-family"><option value="onegai">おねがいアイプリバース</option><option value="himitsu">ひみつのアイプリバース</option><option value="primagi">プリマジ</option></select></label>'}<div class="editor-preview verse-editor-preview">${c.image ? `<img src="${esc(window.CARD_PRIMAGI.image(c.image, 900))}" alt="フルコーデ">` : ""}<div class="edit-fields verse-edit-grid">${verseField("コーデ名", "name", c.name)}${verseField("フルコーデコード", "code", c.code)}${verseField("レアリティ", "rarity", c.rarity)}${verseField("画像URL", "image", c.image, "url")}${verseField("一覧画像URL", "thumbnail", c.thumbnail, "url")}</div></div><label>だん・キャンペーン情報（JSON配列）<textarea data-verse-field="appearances" rows="5">${esc(JSON.stringify(c.appearances, null, 2))}</textarea></label></fieldset><h3>構成パーツ</h3>${c.parts.map((p) => `<fieldset data-verse-part="${p.id}"><legend>${esc(p.slot)}${c.id ? ` · ID ${p.id}` : ""}</legend>${c.id ? "" : `<label><input type="checkbox" data-include-part ${p.slot === "ワンピ" ? "" : "checked"}>この部位を登録</label>`}<div class="verse-part-editor">${p.image ? `<img src="${esc(window.CARD_PRIMAGI.image(p.image, 700))}" alt="${esc(p.slot)}" loading="lazy">` : ""}<div class="verse-edit-grid">${verseField("部位", "slot", p.slot)}${verseField(c.family === "primagi" ? "ワッチャ（未確認は空欄）" : "バズパワー（未確認は空欄）", "buzz", p.buzz, "number")}${verseField("コード（カンマ区切り）", "codes", p.codes.join(", "))}${verseField("画像URL", "image", p.image, "url")}</div></div></fieldset>`).join("")}`;
       $("verse-editor-status").textContent = "";
       $("verse-editor-dialog").showModal();
-    };
+    }
     $("verse-editor-close").onclick = () => {
       if (!verseSaving) $("verse-editor-dialog").close();
     };
@@ -2913,13 +2963,14 @@
               e.value.trim(),
             ]),
           );
+        const target = verseEditing, current = generation;
         const coordinate = values(
           document.querySelector(".verse-edit-coordinate"),
         );
         coordinate.appearances = JSON.parse(coordinate.appearances);
         const parts = [
           ...$("verse-editor-fields").querySelectorAll("[data-verse-part]"),
-        ].map((root) => {
+        ].filter(root => target.id || root.querySelector("[data-include-part]").checked).map((root) => {
           const v = values(root);
           return {
             ...v,
@@ -2931,15 +2982,21 @@
               .filter(Boolean),
           };
         });
-        await adminRPC("card_admin_verse_save", {
-          p_id: verseEditing.id,
-          p_expected: verseEditing.edit_version,
-          p_coordinate: coordinate,
-          p_parts: parts,
-        });
+        if (target.id) {
+          await adminRPC("card_admin_verse_save", {
+            p_id: target.id, p_expected: target.edit_version, p_coordinate: coordinate, p_parts: parts,
+          });
+        } else {
+          if (!coordinate.name || parts.length === 0) throw new Error("コーデ名と構成部位を入力してください。");
+          if (!window.confirm(`「${coordinate.name}」を登録しますか？`)) return;
+          await adminRPC("card_admin_verse_create_v1", {
+            p_family: $("manual-verse-family").value, p_coordinate: coordinate, p_parts: parts,
+          });
+        }
+        if (current !== generation || !authorized) return;
         $("verse-editor-dialog").close();
-        await loadVerseAdmin();
-        message("コーデとパーツの変更を保存しました。");
+        if (target.id) await loadVerseAdmin();
+        if (current === generation && authorized) message(target.id ? "コーデとパーツの変更を保存しました。" : "コーデを登録しました。");
       } catch (error) {
         if (authorized) $("verse-editor-status").textContent = errorText(error);
       } finally {
