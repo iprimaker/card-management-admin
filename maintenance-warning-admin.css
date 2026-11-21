@@ -1,0 +1,10 @@
+.maintenance-warning-admin { margin-top:24px; padding-top:20px; border-top:1px solid var(--line,#e6dbe3); }
+.maintenance-warning-admin h3 { margin:0 0 10px; font-size:18px; }
+.maintenance-warning-admin p { font-size:14px; line-height:1.8; }
+.maintenance-warning-admin form { display:grid; gap:14px; }
+.maintenance-warning-admin label { display:grid; gap:6px; font-size:14px; font-weight:500; }
+.maintenance-warning-admin input,.maintenance-warning-admin textarea { box-sizing:border-box; width:100%; min-width:0; border:1px solid var(--line,#e6dbe3); border-radius:10px; padding:10px 12px; background:white; color:inherit; font:inherit; }
+.maintenance-warning-admin-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; }
+.maintenance-warning-admin-actions button { width:auto; margin:0; min-height:42px; padding:10px 16px; border-radius:10px; font:inherit; font-size:14px; cursor:pointer; }
+.maintenance-warning-admin-actions button:disabled { opacity:.5;cursor:default; }
+.maintenance-warning-admin-note { color:var(--muted,#766675); }
