@@ -16,6 +16,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
     loading = false,
     saving = false,
     ready = false;
+  let configuredRegistrationMode = null;
   let maintenance = null,
     dirty = new Set();
   const forms = ["maintenance-controls", "registration-controls", "registration-capacity-controls", "guest-browse-controls"];
@@ -60,12 +61,32 @@ window.ADMIN_WORKFLOW.mount((host) => {
       ).textContent = "未保存の変更があります。";
     });
   function registrationStatus(status) {
-    $("registration-state").textContent = status.capacity_limited ? "通常のID発行は上限に達しています" : status.allowed
-      ? "通常登録を受付中"
-      : status.invitation_allowed
+    const mode = configuredRegistrationMode ?? status.mode;
+    let text;
+    if (mode === "open") {
+      if (status.allowed === true) {
+        text = "通常登録を受付中";
+      } else if (status.capacity_limited === true) {
+        text = "通常登録を設定中 · ID発行間隔の制限により一時停止中";
+      } else if (status.shard_full === true) {
+        text = "通常登録を設定中 · このDBの登録人数が上限に達しています";
+      } else if (status.reservation_limited === true) {
+        text = "通常登録を設定中 · 発行済みIDの登録待ちにより一時停止中";
+      } else {
+        text = "通常登録を設定中 · 現在は受付停止中";
+        if (status.message) text += "：" + status.message;
+      }
+    } else if (mode === "invitation") {
+      text = status.invitation_allowed === true
         ? "招待からのみ受付中"
-        : "招待を含め新規登録を停止中";
-    $("registration-state").classList.toggle("paused", !status.allowed);
+        : "招待制を設定中 · 現在は受付停止中";
+    } else if (mode === "closed") {
+      text = "招待を含め新規登録を停止中";
+    } else {
+      text = "受付方法を確認できません。状態を更新してください。";
+    }
+    $("registration-state").textContent = text;
+    $("registration-state").classList.toggle("paused", status.allowed !== true);
   }
   function maintenanceStatus(status) {
     maintenance = status;
@@ -116,7 +137,12 @@ window.ADMIN_WORKFLOW.mount((host) => {
           "運営設定を確認できません。設定SQLの適用状況を確認してください。",
         );
       const settings = data.settings;
-      $("registration-mode").value = response.data.mode;
+      configuredRegistrationMode = typeof settings.registration_enabled === "boolean"
+        ? settings.registration_enabled
+          ? "open"
+          : settings.invitation_registration_enabled === true ? "invitation" : "closed"
+        : response.data.mode;
+      $("registration-mode").value = configuredRegistrationMode;
       $("registration-message").value = settings.pause_message || "";
       $("registration-db-limit").value = settings.database_limit_bytes
         ? Number(settings.database_limit_bytes) / 1000000
@@ -254,6 +280,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
       (data) => {
         if (!data || data.mode !== mode)
           throw Error("受付方法の保存結果を確認できませんでした。");
+        configuredRegistrationMode = mode;
         registrationStatus(data);
       },
     );
@@ -497,6 +524,7 @@ ${url}`;
     dirty.clear();
     maintenance = null;
     capacityRevision = guestBrowseRevision = null;
+    configuredRegistrationMode = null;
     forms.forEach((id) => $(id).reset());
     root.querySelectorAll("button,input,select,textarea").forEach((control) => {
       control.disabled = false;
