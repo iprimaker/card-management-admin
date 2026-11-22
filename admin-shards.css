@@ -313,196 +313,183 @@
 .shard-status:empty {
   display: none;
 }
-.shard-remote {
-  margin-top: 26px;
-  padding-top: 22px;
-  border-top: 1px solid var(--shard-line);
+
+/* Every DB uses the original #user-list table; only usage has a new summary. */
+.shard-stat:last-child > strong {
+  font-size: 18px;
+  line-height: 2.1;
 }
-.shard-list-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+#admin-usage.shard-usage-active
+  > :not(.section-heading):not(.shard-usage-panel) {
+  display: none !important;
 }
-.shard-list-heading h3 {
-  font-size: 16px;
+.shard-usage-panel {
+  min-width: 0;
+  margin-top: 20px;
 }
-.shard-list-count {
-  padding: 5px 12px;
-  border: 1px solid #e8dff1;
-  border-radius: 99px;
-  background: #faf6ff;
-  color: #84669f;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.shard-search {
+.shard-usage-toolbar {
   display: flex;
   align-items: end;
-  gap: 10px;
-  margin: 18px 0;
-}
-.shard-search label {
-  flex: 1 1 250px;
-  max-width: 420px;
-}
-.shard-table-wrap {
-  width: 100%;
-  overflow-x: auto;
-  border: 1px solid #e9e2ef;
-  border-radius: 12px;
-}
-.shard-panel table {
-  width: 100%;
-  min-width: 720px;
-  border-collapse: collapse;
-  table-layout: auto;
-  color: #675a75;
-  font-size: 12px;
-}
-.shard-panel thead {
-  background: #f8f5fb;
-}
-.shard-panel th {
-  padding: 12px 14px;
-  border-bottom: 1px solid #e9e2ef;
-  color: #7f6c8d;
-  font-size: 10px;
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
-}
-.shard-panel td {
-  padding: 15px 14px;
-  border-bottom: 1px solid #f0eaf5;
-  text-align: left;
-  vertical-align: middle;
-}
-.shard-panel tbody tr:last-child td {
-  border-bottom: 0;
-}
-.shard-panel tbody tr:hover {
-  background: #fdfbff;
-}
-.shard-account-name {
-  display: block;
-  max-width: 200px;
-  margin-bottom: 7px;
-  color: #51405e;
-  font-size: 13px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.shard-account-id {
-  display: inline-block;
-  padding: 3px 6px;
-  border-radius: 5px;
-  background: #f6f1fa;
-  color: #7d6292;
-  font:
-    10px/1.5 ui-monospace,
-    monospace;
-  letter-spacing: 0.035em;
-}
-.shard-date-cell {
-  white-space: nowrap;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-.shard-date-cell small {
-  display: block;
-  margin-top: 5px;
-  color: #85738e;
-  font-size: 10px;
-}
-.shard-user-counts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(82px, 1fr));
-  gap: 6px 10px;
-}
-.shard-user-counts > span {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 5px 7px;
-  border-radius: 5px;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--line, #e5dfed);
+  border-radius: 12px;
   background: #faf7fd;
 }
-.shard-user-counts > span > span {
-  color: #7f6b90;
-  font-size: 9px;
-  white-space: nowrap;
-}
-.shard-user-counts b {
-  color: #795f8c;
-  font-size: 11px;
+.shard-usage-toolbar label {
+  display: grid;
+  gap: 8px;
+  color: #756282;
+  font-size: 12px;
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
-.shard-qr-count {
-  display: inline-block;
-  min-width: 42px;
-  padding: 5px 8px;
-  border: 1px solid #ebe3f2;
-  border-radius: 7px;
-  color: #7d638f;
-  font-size: 11px;
-  text-align: center;
-  white-space: nowrap;
+.shard-usage-toolbar select {
+  min-width: 160px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid #dbd0e6;
+  border-radius: 9px;
+  background: white;
+  color: #51415e;
+  font: inherit;
+  font-size: 14px;
 }
-.shard-empty-row td {
-  padding: 40px 20px !important;
-  text-align: center !important;
-}
-.shard-empty-row strong,
-.shard-empty-row span {
-  display: block;
-}
-.shard-empty-row strong {
-  color: #897098;
-  font-size: 13px;
-}
-.shard-empty-row span {
-  margin-top: 9px;
-  color: #80708e;
+.shard-usage-toolbar > span {
+  color: #80718c;
   font-size: 11px;
   line-height: 1.8;
 }
-.shard-pages {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 16px;
+.shard-usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
 }
-.shard-pages > span {
-  color: #7d6d8c;
+.shard-usage-metrics .usage-metric {
+  min-width: 0;
+  padding: 19px;
+  border: 1px solid #e7dfef;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: none;
+}
+.shard-usage-metrics .usage-metric > span {
+  display: block;
+  color: #7c6c8c;
   font-size: 11px;
+}
+.shard-usage-metrics .usage-metric > strong {
+  display: block;
+  margin-top: 11px;
+  color: #59466c;
+  font-size: clamp(19px, 2.2vw, 27px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.shard-usage-metrics .usage-metric > small {
+  display: block;
+  margin-top: 8px;
+  color: #82738c;
+  font-size: 10px;
+  line-height: 1.8;
+}
+.shard-usage-message {
+  color: #956447;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.shard-usage-message:empty {
+  display: none;
+}
+.shard-usage-sync {
+  padding: 13px 16px;
+  border: 1px solid #e7dff0;
+  border-radius: 10px;
+  background: #faf7fd;
+  color: #7d688e;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.shard-usage-sync:empty {
+  display: none;
+}
+.shard-usage-note {
+  margin: 13px 0 22px;
+  color: #82738c;
+  font-size: 11px;
+  line-height: 1.9;
+}
+.shard-usage-panel > .section-heading {
+  margin-top: 28px;
+}
+.shard-usage-panel > .section-heading h2 {
+  font-size: 16px;
+}
+.shard-usage-panel > .section-heading a {
+  color: #7c6099;
+  font-size: 11px;
+  text-decoration: none;
+}
+.shard-usage-panel > .section-heading a:hover {
+  text-decoration: underline;
+}
+.shard-usage-panel .table-wrap {
+  max-width: 100%;
+  border: 1px solid #e8e0ef;
+  border-radius: 10px;
+}
+.shard-usage-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.shard-usage-panel th {
+  padding: 12px 14px;
+  background: #f9f6fc;
+  color: #7d698d;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+}
+.shard-usage-panel td {
+  padding: 12px 14px;
+  color: #6e5d7c;
+  border-top: 1px solid #eee8f4;
   font-variant-numeric: tabular-nums;
 }
-.shard-pages > div {
-  display: flex;
-  gap: 7px;
+.shard-usage-panel td:first-child {
+  overflow-wrap: anywhere;
 }
-.shard-pages button {
-  min-height: 34px;
-  padding: 6px 13px;
-  font-size: 11px;
-}
-.shard-visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
+.shard-usage-panel td:not(:first-child) {
   white-space: nowrap;
-  border: 0;
 }
-#admin-users.shard-remote-selected > :not(.section-heading):not(.shard-panel) {
-  display: none !important;
+.shard-usage-details {
+  margin-top: 24px;
+  padding: 18px 20px;
+  border: 1px solid #e6ddec;
+  border-radius: 12px;
+  background: #fcfaff;
+}
+.shard-usage-details summary {
+  color: #77608d;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.shard-usage-details button {
+  margin-top: 16px;
+}
+.shard-usage-details p[role="status"] {
+  color: #8c765e;
+  font-size: 12px;
+}
+.shard-usage-panel :is(button, select):focus-visible {
+  outline: 3px solid #cdbbdf;
+  outline-offset: 3px;
 }
 @media (max-width: 850px) {
   .shard-panel {
@@ -513,6 +500,9 @@
   }
   .shard-config .shard-primary {
     flex: 1 1 100%;
+  }
+  .shard-usage-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 600px) {
@@ -538,11 +528,7 @@
     padding: 12px 13px;
   }
   .shard-stat > strong {
-    font-size: 24px;
-  }
-  .shard-limit-state > strong {
-    font-size: 16px;
-    line-height: 2.1;
+    font-size: 23px;
   }
   .shard-config {
     padding: 14px;
@@ -555,84 +541,30 @@
   .shard-toggle {
     flex-basis: 100% !important;
   }
-  .shard-search label {
-    max-width: none;
+  .shard-usage-toolbar {
+    padding: 15px;
   }
-  .shard-table-wrap {
-    overflow: visible;
-    border: 0;
-    border-radius: 0;
-  }
-  .shard-panel table {
-    display: block;
-    min-width: 0;
+  .shard-usage-toolbar label {
     width: 100%;
   }
-  .shard-panel thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
-  .shard-panel tbody {
-    display: grid;
-    gap: 12px;
-  }
-  .shard-panel tbody tr {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 13px 14px;
-    padding: 16px;
-    border: 1px solid #e9e2ef;
-    border-radius: 12px;
-    background: #fff;
-  }
-  .shard-panel td {
-    display: block;
-    min-width: 0;
-    padding: 0;
-    border: 0;
-  }
-  .shard-panel td::before {
-    content: attr(data-label);
-    display: block;
-    margin-bottom: 6px;
-    color: #826d92;
-    font-size: 10px;
-  }
-  .shard-panel .shard-account-cell {
-    grid-column: 1 / -1;
-    padding-bottom: 13px;
-    border-bottom: 1px solid #f2edf6;
-  }
-  .shard-panel .shard-account-cell::before {
-    display: none;
-  }
-  .shard-account-name {
-    max-width: none;
-  }
-  .shard-panel td[data-label="所持数"] {
-    grid-column: 1 / -1;
-  }
-  .shard-user-counts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .shard-panel .shard-empty-row {
-    display: block;
-    padding: 24px 16px;
-  }
-  .shard-empty-row td {
-    padding: 0 !important;
-  }
-  .shard-pages {
+  .shard-usage-metrics {
     gap: 10px;
   }
-  .shard-pages > span {
-    flex: 1 1 100%;
+  .shard-usage-metrics .usage-metric {
+    padding: 14px;
   }
-  .shard-pages > div {
-    margin-left: auto;
+  .shard-usage-metrics .usage-metric > strong {
+    font-size: 20px;
+  }
+  .shard-usage-panel td,
+  .shard-usage-panel th {
+    padding: 10px;
+    font-size: 11px;
+  }
+}
+@media (max-width: 360px) {
+  .shard-usage-metrics {
+    grid-template-columns: 1fr;
   }
 }
 @media (prefers-reduced-motion: reduce) {

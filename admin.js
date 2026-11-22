@@ -38,7 +38,9 @@
           (lastConnectionFailure ? " 通信先：" + lastConnectionFailure : "")
         );
       if (/PGRST202|42883/.test(error?.code || "")) {
-        return "管理機能の設定SQLが適用されているか確認してください。詳細：" + detail;
+        return (
+          "管理機能の設定SQLが適用されているか確認してください。詳細：" + detail
+        );
       }
       if (/email not confirmed/i.test(detail))
         return "一般サイトで届いた確認メールを開き、メール確認を完了してください。";
@@ -55,16 +57,31 @@
     let forceAdminLogin = () => {};
     const adminPrivateRequests = new Set();
     async function boundedFetch(input, init = {}) {
-      const requestURL=new URL(typeof input === "string" || input instanceof URL ? input : input.url,location.href);
-      const path=requestURL.pathname;
-      const name=decodeURIComponent(path.split("/").pop());
-      const privateRequest=requestURL.origin===new URL(config.supabaseUrl).origin && path.startsWith("/rest/v1/") &&
-        ((/^card_admin_/.test(name) && name!=="card_admin_mfa_identity") || /^card_visibility_admin_/.test(name) || /^card_qr_admin_/.test(name) || name==="card_account_presence_touch");
-      if(privateRequest && !session)return Response.json({code:"PGRST301",message:"ログインし直してください。"},{status:401});
-      const requestGeneration=privateRequest?generation:null,requestUser=privateRequest?session?.user?.id:null;
-      const stillCurrent=()=>!privateRequest || (generation===requestGeneration && session?.user?.id===requestUser);
+      const requestURL = new URL(
+        typeof input === "string" || input instanceof URL ? input : input.url,
+        location.href,
+      );
+      const path = requestURL.pathname;
+      const name = decodeURIComponent(path.split("/").pop());
+      const privateRequest =
+        requestURL.origin === new URL(config.supabaseUrl).origin &&
+        path.startsWith("/rest/v1/") &&
+        ((/^card_admin_/.test(name) && name !== "card_admin_mfa_identity") ||
+          /^card_visibility_admin_/.test(name) ||
+          /^card_qr_admin_/.test(name) ||
+          name === "card_account_presence_touch");
+      if (privateRequest && !session)
+        return Response.json(
+          { code: "PGRST301", message: "ログインし直してください。" },
+          { status: 401 },
+        );
+      const requestGeneration = privateRequest ? generation : null,
+        requestUser = privateRequest ? session?.user?.id : null;
+      const stillCurrent = () =>
+        !privateRequest ||
+        (generation === requestGeneration && session?.user?.id === requestUser);
       const controller = new AbortController();
-      if(privateRequest)adminPrivateRequests.add(controller);
+      if (privateRequest) adminPrivateRequests.add(controller);
       const abort = () => controller.abort();
       if (init.signal?.aborted) abort();
       else init.signal?.addEventListener("abort", abort, { once: true });
@@ -75,7 +92,9 @@
           signal: controller.signal,
         });
         if (response.status === 401 || response.status === 403)
-          queueMicrotask(() => {if(stillCurrent())forceAdminLogin();});
+          queueMicrotask(() => {
+            if (stillCurrent()) forceAdminLogin();
+          });
         else if (!response.ok) {
           try {
             const detail = await response.clone().json();
@@ -85,7 +104,9 @@
                 detail.message || "",
               )
             )
-              queueMicrotask(() => {if(stillCurrent())forceAdminLogin();});
+              queueMicrotask(() => {
+                if (stillCurrent()) forceAdminLogin();
+              });
           } catch {}
         }
         return response;
@@ -186,7 +207,7 @@
     function hidePrivateData() {
       document.dispatchEvent(new Event("admin-session-reset"));
       invalidateUsage();
-      for(const controller of adminPrivateRequests)controller.abort();
+      for (const controller of adminPrivateRequests) controller.abort();
       adminPrivateRequests.clear();
       clearMfaPanel();
       authorized = false;
@@ -302,13 +323,18 @@
     let mfaBusy = false;
     function sessionAal(next) {
       try {
-        const payload = next.access_token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
+        const payload = next.access_token
+          .split(".")[1]
+          .replace(/-/g, "+")
+          .replace(/_/g, "/");
         return JSON.parse(atob(payload)).aal;
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     }
     function clearMfaPanel() {
-      document.getElementById('admin-mfa-panel')?.remove();
-      if ($('admin-login')) $('admin-login').hidden = false;
+      document.getElementById("admin-mfa-panel")?.remove();
+      if ($("admin-login")) $("admin-login").hidden = false;
       mfaOwner = mfaFactor = mfaPendingFactor = null;
       mfaBusy = false;
     }
@@ -318,81 +344,120 @@
       const level = await db.auth.mfa.getAuthenticatorAssuranceLevel();
       if (level.error) throw level.error;
       if (session?.user?.id !== user) return false;
-      if (level.data?.currentLevel === 'aal2') { clearMfaPanel(); return true; }
+      if (level.data?.currentLevel === "aal2") {
+        clearMfaPanel();
+        return true;
+      }
       const factors = await db.auth.mfa.listFactors();
       if (factors.error) throw factors.error;
       if (session?.user?.id !== user) return false;
-      const verified = (factors.data?.totp || []).filter(f => f.status === 'verified');
+      const verified = (factors.data?.totp || []).filter(
+        (f) => f.status === "verified",
+      );
       clearMfaPanel();
       mfaOwner = user;
       mfaFactor = verified[0]?.id || null;
-      $('admin-login').hidden = true;
-      const panel = document.createElement('section');
-      panel.id = 'admin-mfa-panel';
-      panel.className = 'admin-mfa-panel';
-      panel.innerHTML = '<span class="eyebrow">SECURITY</span><h2>管理者の２段階認証</h2><p data-mfa-help></p><div data-mfa-enrollment hidden><img data-mfa-qr alt="認証アプリ登録用のQRコード"><label>手動登録用キー<input data-mfa-secret type="text" readonly autocomplete="off" spellcheck="false"></label><small>QRコードやキーは他の人に送らないでください。認証アプリのバックアップ方法も確認してください。</small></div><label data-mfa-factor-wrap hidden>認証アプリ<select data-mfa-factor></select></label><button type="button" class="primary" data-mfa-enroll>認証アプリを登録する</button><form data-mfa-form hidden><label>認証アプリの６桁コード<input data-mfa-code type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><button type="submit" class="primary" data-mfa-verify>コードを確認して進む</button></form><p data-mfa-message role="status"></p><button type="button" data-mfa-cancel>ログアウトして戻る</button>';
-      $('admin-auth-message').before(panel);
-      const find = q => panel.querySelector(q);
-      const alive = () => session?.user?.id === user && mfaOwner === user && panel.isConnected;
-      find('[data-mfa-help]').textContent = verified.length
-        ? '登録済みの認証アプリを開き、表示されるコードを入力してください。'
-        : '認証アプリでQRコードを読み取り、表示される６桁コードを入力します。登録前に管理データは表示しません。';
-      find('[data-mfa-enroll]').hidden = verified.length > 0;
-      find('[data-mfa-form]').hidden = verified.length === 0;
+      $("admin-login").hidden = true;
+      const panel = document.createElement("section");
+      panel.id = "admin-mfa-panel";
+      panel.className = "admin-mfa-panel";
+      panel.innerHTML =
+        '<span class="eyebrow">SECURITY</span><h2>管理者の２段階認証</h2><p data-mfa-help></p><div data-mfa-enrollment hidden><img data-mfa-qr alt="認証アプリ登録用のQRコード"><label>手動登録用キー<input data-mfa-secret type="text" readonly autocomplete="off" spellcheck="false"></label><small>QRコードやキーは他の人に送らないでください。認証アプリのバックアップ方法も確認してください。</small></div><label data-mfa-factor-wrap hidden>認証アプリ<select data-mfa-factor></select></label><button type="button" class="primary" data-mfa-enroll>認証アプリを登録する</button><form data-mfa-form hidden><label>認証アプリの６桁コード<input data-mfa-code type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><button type="submit" class="primary" data-mfa-verify>コードを確認して進む</button></form><p data-mfa-message role="status"></p><button type="button" data-mfa-cancel>ログアウトして戻る</button>';
+      $("admin-auth-message").before(panel);
+      const find = (q) => panel.querySelector(q);
+      const alive = () =>
+        session?.user?.id === user && mfaOwner === user && panel.isConnected;
+      find("[data-mfa-help]").textContent = verified.length
+        ? "登録済みの認証アプリを開き、表示されるコードを入力してください。"
+        : "認証アプリでQRコードを読み取り、表示される６桁コードを入力します。登録前に管理データは表示しません。";
+      find("[data-mfa-enroll]").hidden = verified.length > 0;
+      find("[data-mfa-form]").hidden = verified.length === 0;
       for (const factor of verified) {
-        const option = document.createElement('option');
+        const option = document.createElement("option");
         option.value = factor.id;
-        option.textContent = factor.friendly_name || '認証アプリ';
-        find('[data-mfa-factor]').append(option);
+        option.textContent = factor.friendly_name || "認証アプリ";
+        find("[data-mfa-factor]").append(option);
       }
-      find('[data-mfa-factor-wrap]').hidden = verified.length < 2;
-      find('[data-mfa-factor]').onchange = e => { mfaFactor = e.target.value; };
+      find("[data-mfa-factor-wrap]").hidden = verified.length < 2;
+      find("[data-mfa-factor]").onchange = (e) => {
+        mfaFactor = e.target.value;
+      };
       function setBusy(value) {
         mfaBusy = value;
-        panel.querySelectorAll('button,input,select').forEach(node => node.disabled = value);
+        panel
+          .querySelectorAll("button,input,select")
+          .forEach((node) => (node.disabled = value));
       }
-      find('[data-mfa-enroll]').onclick = async () => {
+      find("[data-mfa-enroll]").onclick = async () => {
         if (!alive() || mfaBusy) return;
         setBusy(true);
-        find('[data-mfa-message]').textContent = '登録の準備中…';
+        find("[data-mfa-message]").textContent = "登録の準備中…";
         try {
           // 同じ画面が以前に発行した未確認の因子のみ整理。確認済みの因子は削除しません。
-          for (const factor of (factors.data?.all || [])) {
-            if (factor.status === 'unverified' && factor.factor_type === 'totp' && factor.friendly_name === 'カードアルバム運営') {
-              const removed = await db.auth.mfa.unenroll({ factorId: factor.id });
+          for (const factor of factors.data?.all || []) {
+            if (
+              factor.status === "unverified" &&
+              factor.factor_type === "totp" &&
+              factor.friendly_name === "カードアルバム運営"
+            ) {
+              const removed = await db.auth.mfa.unenroll({
+                factorId: factor.id,
+              });
               if (removed.error) throw removed.error;
               if (!alive()) return;
             }
           }
-          const enrolled = await db.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'カードアルバム運営', issuer: 'カードアルバム' });
+          const enrolled = await db.auth.mfa.enroll({
+            factorType: "totp",
+            friendlyName: "カードアルバム運営",
+            issuer: "カードアルバム",
+          });
           if (enrolled.error) throw enrolled.error;
           if (!alive()) return;
           mfaFactor = mfaPendingFactor = enrolled.data.id;
           const qr = enrolled.data.totp?.qr_code;
-          if (typeof qr !== 'string' || !enrolled.data.totp?.secret) throw Error('登録用の情報を取得できませんでした。');
-          find('[data-mfa-qr]').src = qr.startsWith('data:image/svg+xml') ? qr : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(qr);
-          find('[data-mfa-secret]').value = enrolled.data.totp.secret;
-          find('[data-mfa-enrollment]').hidden = false;
-          find('[data-mfa-enroll]').hidden = true;
-          find('[data-mfa-form]').hidden = false;
-          find('[data-mfa-message]').textContent = '認証アプリに登録したら、コードを入力してください。';
+          if (typeof qr !== "string" || !enrolled.data.totp?.secret)
+            throw Error("登録用の情報を取得できませんでした。");
+          find("[data-mfa-qr]").src = qr.startsWith("data:image/svg+xml")
+            ? qr
+            : "data:image/svg+xml;charset=utf-8," + encodeURIComponent(qr);
+          find("[data-mfa-secret]").value = enrolled.data.totp.secret;
+          find("[data-mfa-enrollment]").hidden = false;
+          find("[data-mfa-enroll]").hidden = true;
+          find("[data-mfa-form]").hidden = false;
+          find("[data-mfa-message]").textContent =
+            "認証アプリに登録したら、コードを入力してください。";
         } catch {
-          if (alive()) find('[data-mfa-message]').textContent = '準備できませんでした。接続とSupabaseのTOTP設定を確認し、ログインし直してください。';
-        } finally { if (alive()) setBusy(false); }
+          if (alive())
+            find("[data-mfa-message]").textContent =
+              "準備できませんでした。接続とSupabaseのTOTP設定を確認し、ログインし直してください。";
+        } finally {
+          if (alive()) setBusy(false);
+        }
       };
-      find('[data-mfa-form]').onsubmit = async event => {
+      find("[data-mfa-form]").onsubmit = async (event) => {
         event.preventDefault();
         if (!alive() || mfaBusy) return;
-        const code = find('[data-mfa-code]').value.normalize('NFKC').trim();
-        if (!/^\d{6}$/.test(code) || !mfaFactor) { find('[data-mfa-message]').textContent = '６桁のコードを入力してください。'; return; }
+        const code = find("[data-mfa-code]").value.normalize("NFKC").trim();
+        if (!/^\d{6}$/.test(code) || !mfaFactor) {
+          find("[data-mfa-message]").textContent =
+            "６桁のコードを入力してください。";
+          return;
+        }
         setBusy(true);
-        find('[data-mfa-message]').textContent = 'コードを確認中…';
+        find("[data-mfa-message]").textContent = "コードを確認中…";
         try {
-          const challenge = await db.auth.mfa.challenge({ factorId: mfaFactor });
+          const challenge = await db.auth.mfa.challenge({
+            factorId: mfaFactor,
+          });
           if (challenge.error) throw challenge.error;
           if (!alive()) return;
-          const verification = await db.auth.mfa.verify({ factorId: mfaFactor, challengeId: challenge.data.id, code });
-          find('[data-mfa-code]').value = '';
+          const verification = await db.auth.mfa.verify({
+            factorId: mfaFactor,
+            challengeId: challenge.data.id,
+            code,
+          });
+          find("[data-mfa-code]").value = "";
           if (verification.error) throw verification.error;
           if (!alive()) return;
           const current = await db.auth.getSession();
@@ -402,15 +467,22 @@
           clearMfaPanel();
           await checkAccess(current.data.session);
         } catch {
-          if (alive()) { find('[data-mfa-code]').value = ''; find('[data-mfa-message]').textContent = '確認できませんでした。認証アプリの新しいコードを入力してください。'; }
-        } finally { if (alive()) setBusy(false); }
+          if (alive()) {
+            find("[data-mfa-code]").value = "";
+            find("[data-mfa-message]").textContent =
+              "確認できませんでした。認証アプリの新しいコードを入力してください。";
+          }
+        } finally {
+          if (alive()) setBusy(false);
+        }
       };
-      find('[data-mfa-cancel]').onclick = async () => {
+      find("[data-mfa-cancel]").onclick = async () => {
         if (!alive() || mfaBusy) return;
         setBusy(true);
         try {
-          if (mfaPendingFactor) await db.auth.mfa.unenroll({ factorId: mfaPendingFactor });
-          await db.auth.signOut({ scope: 'local' });
+          if (mfaPendingFactor)
+            await db.auth.mfa.unenroll({ factorId: mfaPendingFactor });
+          await db.auth.signOut({ scope: "local" });
         } finally {
           if (session?.user?.id === user || !session) {
             generation++;
@@ -420,16 +492,22 @@
           }
         }
       };
-      $('admin-auth-message').textContent = '';
+      $("admin-auth-message").textContent = "";
       return false;
     }
-    const mfaStyle = document.createElement('style');
-    mfaStyle.textContent = '.admin-mfa-panel{margin:22px 0;padding:20px;border:1px solid var(--line,#e8dfe9);border-radius:20px;background:var(--soft,#faf6fb)}.admin-mfa-panel h2{margin:6px 0 10px;font-size:19px}.admin-mfa-panel p,.admin-mfa-panel small{font-size:12px;line-height:1.8}.admin-mfa-panel label{display:grid;gap:7px;margin:14px 0;font-size:12px}.admin-mfa-panel input,.admin-mfa-panel select{box-sizing:border-box;width:100%;min-width:0;font-size:16px;padding:12px;border-radius:11px;border:1px solid #ddd5df;background:white;color:inherit}.admin-mfa-panel [data-mfa-code]{text-align:center;letter-spacing:.3em}.admin-mfa-panel [data-mfa-qr]{display:block;width:min(220px,100%);height:auto;margin:16px auto}.admin-mfa-panel [data-mfa-secret]{font-size:16px;font-family:monospace;letter-spacing:.03em}.admin-mfa-panel button{width:100%;margin-top:10px}.admin-mfa-panel [data-mfa-cancel]{background:transparent;box-shadow:none;font-size:12px}.admin-mfa-panel [hidden]{display:none!important}';
+    const mfaStyle = document.createElement("style");
+    mfaStyle.textContent =
+      ".admin-mfa-panel{margin:22px 0;padding:20px;border:1px solid var(--line,#e8dfe9);border-radius:20px;background:var(--soft,#faf6fb)}.admin-mfa-panel h2{margin:6px 0 10px;font-size:19px}.admin-mfa-panel p,.admin-mfa-panel small{font-size:12px;line-height:1.8}.admin-mfa-panel label{display:grid;gap:7px;margin:14px 0;font-size:12px}.admin-mfa-panel input,.admin-mfa-panel select{box-sizing:border-box;width:100%;min-width:0;font-size:16px;padding:12px;border-radius:11px;border:1px solid #ddd5df;background:white;color:inherit}.admin-mfa-panel [data-mfa-code]{text-align:center;letter-spacing:.3em}.admin-mfa-panel [data-mfa-qr]{display:block;width:min(220px,100%);height:auto;margin:16px auto}.admin-mfa-panel [data-mfa-secret]{font-size:16px;font-family:monospace;letter-spacing:.03em}.admin-mfa-panel button{width:100%;margin-top:10px}.admin-mfa-panel [data-mfa-cancel]{background:transparent;box-shadow:none;font-size:12px}.admin-mfa-panel [hidden]{display:none!important}";
     document.head.append(mfaStyle);
 
     function checkAccess(next) {
       const uid = next?.user?.id;
-      if (authorized && uid && uid === session?.user?.id && sessionAal(next) === "aal2") {
+      if (
+        authorized &&
+        uid &&
+        uid === session?.user?.id &&
+        sessionAal(next) === "aal2"
+      ) {
         session = next;
         return Promise.resolve();
       }
@@ -476,9 +554,11 @@
         if (!(await ensureAdminMfa()) || current !== generation) return;
         const finalCheck = await db.rpc("is_card_admin");
         if (current !== generation) return;
-        if (finalCheck.error || finalCheck.data !== true) throw Error("管理者権限を確認できませんでした。");
+        if (finalCheck.error || finalCheck.data !== true)
+          throw Error("管理者権限を確認できませんでした。");
       } catch (error) {
-        if (current === generation) $("admin-auth-message").textContent = errorText(error);
+        if (current === generation)
+          $("admin-auth-message").textContent = errorText(error);
         return;
       }
       $("admin-auth-message").textContent = "";
@@ -653,7 +733,7 @@
         .slice((cardPage - 1) * pageSize, cardPage * pageSize)
         .map(
           (c) =>
-            `<article class="admin-card">${c.front ? window.CARD_IMAGE_TRANSFORM.wrap(`<img src="${esc(c.front)}" alt="${esc(c.name || c.code)}" loading="lazy">`, c.frontTransform) : '<div class="pending-no-image">画像未登録</div>'}<div class="catalog-description"><h2>${esc(c.name || "カード名未設定")}</h2><p class="muted">${esc([c.code,c.rarity,c.character].filter(Boolean).join(" · "))}</p><p class="muted">${esc(c.game === "aikatsu" ? "アイカツ！アンコール" : c.family || "アイプリ")}</p></div>${overrides.has(c.id) ? '<span class="override-badge">修正を適用中</span>' : ""}${missingCardBadge(c)}${c._pendingId ? `<span class="pending-badge">SQL保留・根拠確認待ち</span><button data-pending-edit="${esc(c._pendingId)}">編集・正式登録</button>` : `<div class="catalog-row-actions"><button type="button" data-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-card-delete="${esc(c.id)}">強制削除</button></div>`}</article>`,
+            `<article class="admin-card">${c.front ? window.CARD_IMAGE_TRANSFORM.wrap(`<img src="${esc(c.front)}" alt="${esc(c.name || c.code)}" loading="lazy">`, c.frontTransform) : '<div class="pending-no-image">画像未登録</div>'}<div class="catalog-description"><h2>${esc(c.name || "カード名未設定")}</h2><p class="muted">${esc([c.code, c.rarity, c.character].filter(Boolean).join(" · "))}</p><p class="muted">${esc(c.game === "aikatsu" ? "アイカツ！アンコール" : c.family || "アイプリ")}</p></div>${overrides.has(c.id) ? '<span class="override-badge">修正を適用中</span>' : ""}${missingCardBadge(c)}${c._pendingId ? `<span class="pending-badge">SQL保留・根拠確認待ち</span><button data-pending-edit="${esc(c._pendingId)}">編集・正式登録</button>` : `<div class="catalog-row-actions"><button type="button" data-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-card-delete="${esc(c.id)}">強制削除</button></div>`}</article>`,
         )
         .join("");
       $("card-page").textContent =
@@ -664,17 +744,20 @@
     function setEditorFrontTransform(value) {
       const transform = window.CARD_IMAGE_TRANSFORM.normalize(value);
       $("edit-front-crop").checked = !!transform;
-      for (const [key, initial] of Object.entries(window.CARD_IMAGE_TRANSFORM.defaults)) {
-        $("edit-form").elements.namedItem("crop-" + key).value = transform?.[key] ?? initial;
+      for (const [key, initial] of Object.entries(
+        window.CARD_IMAGE_TRANSFORM.defaults,
+      )) {
+        $("edit-form").elements.namedItem("crop-" + key).value =
+          transform?.[key] ?? initial;
       }
       updateEditorFrontPreview();
     }
     function editorFrontTransform() {
       if (!$("edit-front-crop").checked) return null;
       const fields = $("edit-form").elements;
-      const values = Object.keys(window.CARD_IMAGE_TRANSFORM.defaults).map((key) => [
-        key, fields.namedItem("crop-" + key).valueAsNumber,
-      ]);
+      const values = Object.keys(window.CARD_IMAGE_TRANSFORM.defaults).map(
+        (key) => [key, fields.namedItem("crop-" + key).valueAsNumber],
+      );
       return window.CARD_IMAGE_TRANSFORM.normalize(Object.fromEntries(values));
     }
     function updateEditorFrontPreview() {
@@ -682,7 +765,8 @@
       const enabled = $("edit-front-crop").checked;
       const controls = $("edit-front-crop-controls");
       controls.hidden = !enabled;
-      for (const field of controls.querySelectorAll("input")) field.disabled = !enabled;
+      for (const field of controls.querySelectorAll("input"))
+        field.disabled = !enabled;
       const image = $("edit-image");
       const url = input?.value.trim() || "";
       if (url.startsWith("https://")) {
@@ -695,7 +779,11 @@
       window.CARD_IMAGE_TRANSFORM.apply(image, editorFrontTransform());
     }
     $("edit-form").addEventListener("input", (event) => {
-      if (event.target.matches('[data-field="front"], #edit-front-crop, input[name^="crop-"]')) {
+      if (
+        event.target.matches(
+          '[data-field="front"], #edit-front-crop, input[name^="crop-"]',
+        )
+      ) {
         updateEditorFrontPreview();
       }
     });
@@ -781,8 +869,13 @@
           else patch[key] = value;
         });
         const transform = editorFrontTransform();
-        if ($("edit-front-crop").checked && (!transform || !String(patch.front ?? editing.front ?? "").trim())) {
-          throw Error("表面画像URLと、調整欄の範囲内の数値を入力してください。");
+        if (
+          $("edit-front-crop").checked &&
+          (!transform || !String(patch.front ?? editing.front ?? "").trim())
+        ) {
+          throw Error(
+            "表面画像URLと、調整欄の範囲内の数値を入力してください。",
+          );
         }
         if (transform) patch.frontTransform = transform;
         else delete patch.frontTransform;
@@ -904,22 +997,48 @@
         '" aria-hidden="true"></span>'
       );
     }
-    let userQRMin=null,userQRMax=null,userQRTimer;
-    function qrFilterChanged(){
+    let userQRMin = null,
+      userQRMax = null,
+      userQRTimer;
+    function qrFilterChanged() {
       clearTimeout(userQRTimer);
-      const mode=$("user-qr-filter").value;
-      $("user-qr-range").hidden=mode!=="range";
-      const min=$("user-qr-min"),max=$("user-qr-max");
-      min.setCustomValidity("");max.setCustomValidity("");
-      const low=mode==="yes"?1:mode==="no"?0:mode==="range"&&min.value!==""?Number(min.value):null;
-      const high=mode==="no"?0:mode==="range"&&max.value!==""?Number(max.value):null;
-      if(mode==="range"&&(!min.checkValidity()||!max.checkValidity()))return;
-      if(low!==null&&high!==null&&low>high){max.setCustomValidity("最大件数は最小件数以上にしてください。");max.reportValidity();return;}
-      userQRTimer=setTimeout(()=>{userQRMin=low;userQRMax=high;userPage=1;loadUsers();},250);
+      const mode = $("user-qr-filter").value;
+      $("user-qr-range").hidden = mode !== "range";
+      const min = $("user-qr-min"),
+        max = $("user-qr-max");
+      min.setCustomValidity("");
+      max.setCustomValidity("");
+      const low =
+        mode === "yes"
+          ? 1
+          : mode === "no"
+            ? 0
+            : mode === "range" && min.value !== ""
+              ? Number(min.value)
+              : null;
+      const high =
+        mode === "no"
+          ? 0
+          : mode === "range" && max.value !== ""
+            ? Number(max.value)
+            : null;
+      if (mode === "range" && (!min.checkValidity() || !max.checkValidity()))
+        return;
+      if (low !== null && high !== null && low > high) {
+        max.setCustomValidity("最大件数は最小件数以上にしてください。");
+        max.reportValidity();
+        return;
+      }
+      userQRTimer = setTimeout(() => {
+        userQRMin = low;
+        userQRMax = high;
+        userPage = 1;
+        loadUsers();
+      }, 250);
     }
-    $("user-qr-filter").onchange=qrFilterChanged;
-    $("user-qr-min").oninput=qrFilterChanged;
-    $("user-qr-max").oninput=qrFilterChanged;
+    $("user-qr-filter").onchange = qrFilterChanged;
+    $("user-qr-min").oninput = qrFilterChanged;
+    $("user-qr-max").oninput = qrFilterChanged;
     function userArgs(include = true) {
       return {
         p_offset: (userPage - 1) * 100,
@@ -929,12 +1048,13 @@
         p_query: userQuery,
         p_sort: userSort,
         p_include_ownership: include,
-        p_qr_min:userQRMin,
-        p_qr_max:userQRMax,
+        p_qr_min: userQRMin,
+        p_qr_max: userQRMax,
       };
     }
     function userKey() {
       return [
+        window.CARD_ADMIN_SHARDS?.usersDatabase() || "main",
         generation,
         userPage,
         userState,
@@ -985,14 +1105,12 @@
         status +
         "</span>";
       if (!/^[0-9a-f]{64}$/.test(u.share_token || ""))
-        return (
-          badge +
-          '<small class="user-share-note">URL再表示不可</small>'
-        );
+        return badge + '<small class="user-share-note">URL再表示不可</small>';
       const url = new URL(
-        "share/",
+        u.database_prefix ? "./?view=shared" : "share/",
         "https://iprimaker.github.io/card-management/",
       );
+      if (u.database_prefix) url.searchParams.set("db", u.database_prefix);
       url.hash = u.share_token;
       return (
         badge +
@@ -1025,7 +1143,7 @@
               ].reduce((a, k) => a + n(k), 0),
               verseTotal =
                 n("verse_onegai_coordinates") + n("verse_himitsu_coordinates");
-            return `<tr><td class="account-status-cell"><span class="account-state is-${state}" title="${esc("直近の画面通信：" + timestamp(u.presence_seen_at) + " ／ 明示的ログアウト：" + timestamp(u.presence_logout_at))}">${accountStatusDot(state)}${stateLabels[state]}</span></td><td class="user-identity"><strong>${esc(u.nickname || "未設定")}</strong><span class="album-id-cell">${esc(u.album_id || "未発行")}</span></td><td class="user-date">${dateCell(u.created_at)}</td><td class="user-date">${dateCell(u.last_sign_in_at)}</td><td class="inactive-days">${u.inactive_days != null && Number.isFinite(Number(u.inactive_days)) ? Math.max(0, Number(u.inactive_days)) + "日" : "—"}</td><td class="ownership-detail ownership-compact"><div class="user-owned-summary"><strong>カード ${cardTotal.toLocaleString()}枚</strong><span>バース ${verseTotal.toLocaleString()}コーデ · プリマジ ${n("primagi_coordinates")}コーデ</span></div><details data-user-detail="${esc(u.id)}" ${opened.has(u.id) ? "open" : ""}><summary>所持数の内訳</summary><div class="user-owned-breakdown"><span>アイカツ <b>${n("aikatsu_count")}枚</b></span><span>おねがい <b>${n("onegai_count")}枚</b></span><span>ひみつ <b>${n("himitsu_count")}枚</b></span>${n("other_count") ? "<span>その他 <b>" + n("other_count") + "枚</b></span>" : ""}<span>おねがいバース <b>${n("verse_onegai_coordinates")}コーデ ／ ${n("verse_onegai_parts")}枚（パーツ）</b></span><span>ひみつバース <b>${n("verse_himitsu_coordinates")}コーデ ／ ${n("verse_himitsu_parts")}枚（パーツ）</b></span><span>プリマジ <b>${n("primagi_coordinates")}コーデ ／ ${n("primagi_parts")}枚（パーツ）</b></span></div></details></td><td class="user-share-cell">${userShareCell(u)}</td><td><button class="danger compact-button" data-delete-user="${esc(u.id)}" ${u.id === session?.user.id ? "disabled" : ""}>強制削除</button></td></tr>`;
+            return `<tr><td class="account-status-cell"><span class="account-state is-${state}" title="${esc("直近の画面通信：" + timestamp(u.presence_seen_at) + " ／ 明示的ログアウト：" + timestamp(u.presence_logout_at))}">${accountStatusDot(state)}${stateLabels[state]}</span></td><td class="user-identity"><strong>${esc(u.nickname || "未設定")}</strong><span class="album-id-cell">${esc(u.album_id || "未発行")}</span></td><td class="user-date">${dateCell(u.created_at)}</td><td class="user-date">${dateCell(u.last_sign_in_at)}</td><td class="inactive-days">${u.inactive_days != null && Number.isFinite(Number(u.inactive_days)) ? Math.max(0, Number(u.inactive_days)) + "日" : "—"}</td><td class="ownership-detail ownership-compact"><div class="user-owned-summary"><strong>カード ${cardTotal.toLocaleString()}枚</strong><span>バース ${verseTotal.toLocaleString()}コーデ · プリマジ ${n("primagi_coordinates")}コーデ</span></div><details data-user-detail="${esc(u.id)}" ${opened.has(u.id) ? "open" : ""}><summary>所持数の内訳</summary><div class="user-owned-breakdown"><span>アイカツ <b>${n("aikatsu_count")}枚</b></span><span>おねがい <b>${n("onegai_count")}枚</b></span><span>ひみつ <b>${n("himitsu_count")}枚</b></span>${n("other_count") ? "<span>その他 <b>" + n("other_count") + "枚</b></span>" : ""}<span>おねがいバース <b>${n("verse_onegai_coordinates")}コーデ ／ ${n("verse_onegai_parts")}枚（パーツ）</b></span><span>ひみつバース <b>${n("verse_himitsu_coordinates")}コーデ ／ ${n("verse_himitsu_parts")}枚（パーツ）</b></span><span>プリマジ <b>${n("primagi_coordinates")}コーデ ／ ${n("primagi_parts")}枚（パーツ）</b></span></div></details></td><td class="user-share-cell">${userShareCell(u)}</td><td><button class="danger compact-button" data-delete-user="${esc(u.id)}" ${(window.CARD_ADMIN_SHARDS?.usersDatabase() || "main") === "main" && u.id === session?.user.id ? "disabled" : ""}>強制削除</button></td></tr>`;
           })
           .join("") ||
         '<tr><td colspan="8" class="user-empty">条件に一致する登録者はいません。</td></tr>';
@@ -1069,12 +1187,18 @@
       $("users-checked-at").textContent =
         "状態を再確認できません。更新してください。";
     }
+    async function adminUserRPC(name, args) {
+      const provider = window.CARD_ADMIN_SHARDS;
+      if (provider && provider.usersDatabase() !== "main")
+        return provider.usersRPC(name, args);
+      return db.rpc(name, args);
+    }
     async function loadUsersUnsafe() {
       if (!authorized) return;
       const key = userKey(),
         request = ++usersRequest;
       message("登録者を読み込み中…");
-      const { data, error } = await db.rpc(
+      const { data, error } = await adminUserRPC(
         "card_admin_users_fast_v1",
         userArgs(),
       );
@@ -1089,10 +1213,24 @@
         userPage = Math.max(1, Math.ceil(data.total / 100));
         return loadUsersUnsafe();
       }
-      const primagiResult = await db.rpc("card_admin_primagi_user_counts", { p_users: data.users.map(u => u.id) });
+      const primagiResult = await adminUserRPC(
+        "card_admin_primagi_user_counts",
+        { p_users: data.users.map((u) => u.id) },
+      );
       if (!authorized || key !== userKey() || request !== usersRequest) return;
-      if (primagiResult.error) { markUsersStale(); message("プリマジの所持数を取得できません。追加SQLと管理者認証を確認してください。"); return; }
-      userRows = new Map(data.users.map((u) => [u.id, { ...u, ...(primagiResult.data?.[u.id] || {}) }]));
+      if (primagiResult.error) {
+        markUsersStale();
+        message(
+          "プリマジの所持数を取得できません。追加SQLと管理者認証を確認してください。",
+        );
+        return;
+      }
+      userRows = new Map(
+        data.users.map((u) => [
+          u.id,
+          { ...u, ...(primagiResult.data?.[u.id] || {}) },
+        ]),
+      );
       applyUserMeta(data);
       paintUsers();
       message("");
@@ -1110,7 +1248,7 @@
       const key = userKey(),
         request = usersRequest;
       try {
-        const { data, error } = await db.rpc(
+        const { data, error } = await adminUserRPC(
           "card_admin_users_fast_v1",
           userArgs(false),
         );
@@ -1170,10 +1308,13 @@
     };
     $("user-filter-reset").onclick = () => {
       clearTimeout(userSearchTimer);
-      clearTimeout(userQRTimer);userQRMin=userQRMax=null;
-      $("user-qr-filter").value="all";$("user-qr-range").hidden=true;
-      $("user-qr-min").value=$("user-qr-max").value="";
-      $("user-qr-min").setCustomValidity("");$("user-qr-max").setCustomValidity("");
+      clearTimeout(userQRTimer);
+      userQRMin = userQRMax = null;
+      $("user-qr-filter").value = "all";
+      $("user-qr-range").hidden = true;
+      $("user-qr-min").value = $("user-qr-max").value = "";
+      $("user-qr-min").setCustomValidity("");
+      $("user-qr-max").setCustomValidity("");
       userState = "all";
       userShare = "all";
       $("user-share-filter").value = "all";
@@ -1953,7 +2094,15 @@
 
     function showPage(page) {
       if (!requireAdminAction()) return;
-      if (!document.dispatchEvent(new CustomEvent("admin-page-before-change", { cancelable: true, detail: { page } }))) return false;
+      if (
+        !document.dispatchEvent(
+          new CustomEvent("admin-page-before-change", {
+            cancelable: true,
+            detail: { page },
+          }),
+        )
+      )
+        return false;
       history.replaceState(null, "", "#" + page);
       for (const id of [
         "visibility",
@@ -1967,20 +2116,21 @@
         "verse",
         "announcements",
       ])
-        $("admin-" + id).hidden = id !== page && !(id === "cards" && page === "manual");
-      document
-        .querySelectorAll("[data-page]")
-        .forEach((b) => {
-          b.classList.toggle("active", b.dataset.page === page);
-          if (b.dataset.page === page) b.setAttribute("aria-current", "page");
-          else b.removeAttribute("aria-current");
-        });
+        $("admin-" + id).hidden =
+          id !== page && !(id === "cards" && page === "manual");
+      document.querySelectorAll("[data-page]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.page === page);
+        if (b.dataset.page === page) b.setAttribute("aria-current", "page");
+        else b.removeAttribute("aria-current");
+      });
       message("");
       clearInterval(syncProgressTimer);
       const manual = page === "manual";
       $("manual-entry-tools").hidden = !manual;
       $("catalog-card-actions").hidden = manual;
-      $("card-management-title").textContent = manual ? "手動追加" : "カード情報";
+      $("card-management-title").textContent = manual
+        ? "手動追加"
+        : "カード情報";
       $("card-management-help").textContent = manual
         ? "カードの候補を保存・正式登録するか、新しいコーデを登録できます。"
         : "登録済みカードを検索し、情報の編集や削除ができます。";
@@ -2000,7 +2150,9 @@
       if (page === "contacts") loadContacts();
       if (page === "usage") loadUsage();
       if (page === "verse") loadVerseAdmin();
-      document.dispatchEvent(new CustomEvent("admin-page-changed", { detail: { page } }));
+      document.dispatchEvent(
+        new CustomEvent("admin-page-changed", { detail: { page } }),
+      );
     }
     $("connection-test").onclick = async () => {
       const button = $("connection-test"),
@@ -2132,7 +2284,9 @@
       if (b) openEditor(b.dataset.edit);
       const deleting = e.target.closest("[data-card-delete]");
       if (deleting) {
-        const card = baseCards.find(c => c.id === deleting.dataset.cardDelete);
+        const card = baseCards.find(
+          (c) => c.id === deleting.dataset.cardDelete,
+        );
         if (card) void deleteCatalogEntry("card", combined(card), deleting);
       }
       const draft = e.target.closest("[data-pending-edit]");
@@ -2197,7 +2351,10 @@
         session = null;
         hidePrivateData();
       } else if (["SIGNED_IN", "TOKEN_REFRESHED"].includes(event) && next) {
-        if (next.user.id === session?.user?.id && (!authorized || sessionAal(next) === "aal2")) {
+        if (
+          next.user.id === session?.user?.id &&
+          (!authorized || sessionAal(next) === "aal2")
+        ) {
           session = next;
         } else {
           generation++;
@@ -2222,6 +2379,15 @@
       } = {},
     ) {
       if (!authorized || !session) throw Error("ログインし直してください。");
+      if (
+        action === "delete-user" &&
+        body?.database &&
+        body.database !== "main"
+      ) {
+        if (!window.CARD_ADMIN_SHARDS)
+          throw Error("DB管理機能を再読み込みしてください。");
+        return window.CARD_ADMIN_SHARDS.deleteUser(body);
+      }
       let name,
         args = {};
       if (action === "summary") name = "card_admin_contact_summary";
@@ -2273,10 +2439,20 @@
           replies = await adminRPC("card_admin_contact_reply_list", {
             p_contact_ids: messages.map((row) => row.id),
           });
-          if (!Array.isArray(replies)) throw Error("返信の形式を確認してください。");
-        } catch { replyError = true; replies = []; }
-        if (current !== generation || request !== contactsRequest || !authorized ||
-            page !== contactPage || status !== $("contact-status-filter").value) return;
+          if (!Array.isArray(replies))
+            throw Error("返信の形式を確認してください。");
+        } catch {
+          replyError = true;
+          replies = [];
+        }
+        if (
+          current !== generation ||
+          request !== contactsRequest ||
+          !authorized ||
+          page !== contactPage ||
+          status !== $("contact-status-filter").value
+        )
+          return;
         contactReplyRows = new Map(replies.map((row) => [row.contact_id, row]));
         contactRows = new Map(messages.map((row) => [row.id, row]));
         $("contact-list").innerHTML = messages
@@ -2293,7 +2469,7 @@
                 )
                 .join(
                   "",
-                )}</select><button data-contact-save="${esc(row.id)}">状態を保存</button>${row.status === "done" ? `<button type="button" class="danger-button" data-contact-delete="${esc(row.id)}">削除</button>`: ""}</div>${contactReplyMarkup(row.id, replyError)}</details>`,
+                )}</select><button data-contact-save="${esc(row.id)}">状態を保存</button>${row.status === "done" ? `<button type="button" class="danger-button" data-contact-delete="${esc(row.id)}">削除</button>` : ""}</div>${contactReplyMarkup(row.id, replyError)}</details>`,
           )
           .join("");
         $("contact-page").textContent = contactPage + "ページ";
@@ -2325,11 +2501,17 @@
         if (!requireAdminAction()) return;
         const info = contactReplyRows.get(replyButton.dataset.contactReply);
         if (!info?.can_reply) return;
-        contactReplyEditing = { id: info.contact_id, revision: info.reply?.revision || null };
-        $("contact-reply-reference").textContent = "受付番号：" + info.contact_id;
+        contactReplyEditing = {
+          id: info.contact_id,
+          revision: info.reply?.revision || null,
+        };
+        $("contact-reply-reference").textContent =
+          "受付番号：" + info.contact_id;
         $("contact-reply-body").value = info.reply?.body || "";
         $("contact-reply-status").textContent = "";
-        $("contact-reply-save").textContent = info.reply ? "変更を保存" : "返信を送信";
+        $("contact-reply-save").textContent = info.reply
+          ? "変更を保存"
+          : "返信を送信";
         $("contact-reply-delete").hidden = !info.reply;
         $("contact-reply-delete-confirm").hidden = true;
         $("contact-reply-dialog").showModal();
@@ -2409,10 +2591,18 @@
       if (!button || !authorized || button.disabled) return;
       deletingUser = userRows.get(button.dataset.deleteUser);
       if (!deletingUser) return;
+      deletingUser = {
+        ...deletingUser,
+        database_key: window.CARD_ADMIN_SHARDS?.usersDatabase() || "main",
+      };
       $("delete-user-label").textContent =
         (deletingUser.nickname || "未設定") +
         " ／ " +
-        (deletingUser.album_id || "ID未発行");
+        (deletingUser.album_id || "ID未発行") +
+        " ／ 登録先：" +
+        (deletingUser.database_key === "main"
+          ? "本体"
+          : deletingUser.database_key);
       $("delete-user-ack").checked = false;
       $("delete-user-confirm").disabled = true;
       $("delete-user-message").textContent = "";
@@ -2445,7 +2635,12 @@
       try {
         await contactRequest("delete-user", {
           method: "POST",
-          body: { user_id: deletingUser.id, confirmation: "DELETE_ACCOUNT" },
+          body: {
+            user_id: deletingUser.id,
+            confirmation: "DELETE_ACCOUNT",
+            database: deletingUser.database_key,
+            album_id: deletingUser.album_id,
+          },
         });
         if (current !== generation || !authorized) return;
         $("delete-user-dialog").close();
@@ -2502,7 +2697,8 @@
         percent >= 90 ? "quota-danger" : percent >= 80 ? "quota-warning" : "";
       return `<div class="usage-metric ${tone}"><span>${esc(label)}</span><strong>${esc(formatBytes(value))}</strong><small>無料枠 ${esc(formatBytes(limit))} ／ ${percent.toFixed(1)}%</small><div class="quota-bar"><i style="width:${Math.min(100, percent)}%"></i></div></div>`;
     }
-    let usageFlight = null, usageEpoch = 0;
+    let usageFlight = null,
+      usageEpoch = 0;
     function invalidateUsage() {
       usageSnapshot = null;
       usageFetchedAt = 0;
@@ -2511,9 +2707,11 @@
     }
     async function getUsageSnapshot() {
       if (!authorized) throw Error("ログインしてください");
-      if (usageSnapshot && Date.now() - usageFetchedAt < 60000) return usageSnapshot;
+      if (usageSnapshot && Date.now() - usageFetchedAt < 60000)
+        return usageSnapshot;
       if (usageFlight) return usageFlight;
-      const current = generation, epoch = usageEpoch;
+      const current = generation,
+        epoch = usageEpoch;
       const flight = (async () => {
         const { data, error } = await db.rpc("card_admin_usage");
         if (error) throw error;
@@ -2524,10 +2722,14 @@
         return data;
       })();
       usageFlight = flight;
-      try { return await flight; }
-      finally { if (usageFlight === flight) usageFlight = null; }
+      try {
+        return await flight;
+      } finally {
+        if (usageFlight === flight) usageFlight = null;
+      }
     }
     async function loadUsage() {
+      if (window.CARD_ADMIN_SHARDS) return window.CARD_ADMIN_SHARDS.loadUsage();
       if (!authorized || usageBusy) return;
       usageBusy = true;
       const current = generation;
@@ -2768,10 +2970,12 @@
       contactReplyBusy = false;
     function contactReplyMarkup(id, failed) {
       const info = contactReplyRows.get(id);
-      if (failed || !info) return '<section class="contact-reply-section"><p>返信を取得できません。設定SQLの実行後、一覧を更新してください。</p></section>';
-      if (!info.can_reply) return '<section class="contact-reply-section"><p>未ログインのお問い合わせのため、お知らせでの返信はできません。</p></section>';
+      if (failed || !info)
+        return '<section class="contact-reply-section"><p>返信を取得できません。設定SQLの実行後、一覧を更新してください。</p></section>';
+      if (!info.can_reply)
+        return '<section class="contact-reply-section"><p>未ログインのお問い合わせのため、お知らせでの返信はできません。</p></section>';
       const reply = info.reply;
-      return `<section class="contact-reply-section"><h3><span class="contact-reply-tag">返信</span>お問い合わせへの返信</h3>${reply ? `<p class="contact-reply-date">返信日時：${esc(timestamp(reply.created_at))}${reply.updated_at !== reply.created_at ? `<br>更新日時：${esc(timestamp(reply.updated_at))}` : ""}</p><div class="message-body">${esc(reply.body)}</div>` : '<p>まだ返信していません。</p>'}<button type="button" data-contact-reply="${esc(id)}">${reply ? "返信を編集・削除" : "返信する"}</button></section>`;
+      return `<section class="contact-reply-section"><h3><span class="contact-reply-tag">返信</span>お問い合わせへの返信</h3>${reply ? `<p class="contact-reply-date">返信日時：${esc(timestamp(reply.created_at))}${reply.updated_at !== reply.created_at ? `<br>更新日時：${esc(timestamp(reply.updated_at))}` : ""}</p><div class="message-body">${esc(reply.body)}</div>` : "<p>まだ返信していません。</p>"}<button type="button" data-contact-reply="${esc(id)}">${reply ? "返信を編集・削除" : "返信する"}</button></section>`;
     }
     function closeContactReply() {
       if (contactReplyBusy) return;
@@ -2791,34 +2995,55 @@
       $("contact-reply-delete-confirm").hidden = true;
     };
     async function saveContactReply(deleting = false) {
-      if (!requireAdminAction() || contactReplyBusy || !contactReplyEditing) return;
-      const editing = { ...contactReplyEditing }, current = generation;
+      if (!requireAdminAction() || contactReplyBusy || !contactReplyEditing)
+        return;
+      const editing = { ...contactReplyEditing },
+        current = generation;
       const body = $("contact-reply-body").value.trim();
       if (!deleting && (!body || [...body].length > 4000)) {
-        $("contact-reply-status").textContent = "返信は1〜4000文字で入力してください。";
+        $("contact-reply-status").textContent =
+          "返信は1〜4000文字で入力してください。";
         return;
       }
       contactReplyBusy = true;
-      const controls = [...$("contact-reply-dialog").querySelectorAll("button,textarea")];
-      controls.forEach((node) => { node.disabled = true; });
+      const controls = [
+        ...$("contact-reply-dialog").querySelectorAll("button,textarea"),
+      ];
+      controls.forEach((node) => {
+        node.disabled = true;
+      });
       $("contact-reply-status").textContent = deleting ? "削除中…" : "保存中…";
       try {
-        const args = { p_contact_id: editing.id, p_expected_revision: editing.revision };
+        const args = {
+          p_contact_id: editing.id,
+          p_expected_revision: editing.revision,
+        };
         if (!deleting) args.p_body = body;
-        await adminRPC(deleting ? "card_admin_contact_reply_delete" : "card_admin_contact_reply_save", args);
+        await adminRPC(
+          deleting
+            ? "card_admin_contact_reply_delete"
+            : "card_admin_contact_reply_save",
+          args,
+        );
         if (current !== generation || !authorized) return;
         $("contact-reply-dialog").close();
         contactReplyEditing = null;
         $("contact-reply-body").value = "";
         await loadContacts();
         if (current === generation && authorized)
-          message(deleting ? "返信を削除しました。本人のお知らせからも削除されます。" : "返信を保存しました。本人のお知らせに表示されます。");
+          message(
+            deleting
+              ? "返信を削除しました。本人のお知らせからも削除されます。"
+              : "返信を保存しました。本人のお知らせに表示されます。",
+          );
       } catch (error) {
         if (current === generation && authorized)
           $("contact-reply-status").textContent = errorText(error);
       } finally {
         contactReplyBusy = false;
-        controls.forEach((node) => { node.disabled = false; });
+        controls.forEach((node) => {
+          node.disabled = false;
+        });
       }
     }
     $("contact-reply-form").onsubmit = (event) => {
@@ -2906,18 +3131,27 @@
     async function deleteCatalogEntry(kind, item, button) {
       if (!requireAdminAction() || button.disabled) return;
       const label = item.name || item.code || item.id;
-      const detail = kind === "card"
-        ? "このカードの所持記録・お気に入り・交換希望・QR・公開設定も削除されます。"
-        : "このコーデの一式所持記録・お気に入り・交換希望・フルコーデのQR・公開設定も削除されます。パーツとその所持記録・QRは残ります。";
-      if (!window.confirm(`「${label}」を強制削除しますか？\n\n${detail}\nこの操作は元に戻せません。`)) return;
+      const detail =
+        kind === "card"
+          ? "このカードの所持記録・お気に入り・交換希望・QR・公開設定も削除されます。"
+          : "このコーデの一式所持記録・お気に入り・交換希望・フルコーデのQR・公開設定も削除されます。パーツとその所持記録・QRは残ります。";
+      if (
+        !window.confirm(
+          `「${label}」を強制削除しますか？\n\n${detail}\nこの操作は元に戻せません。`,
+        )
+      )
+        return;
       const current = generation;
       button.disabled = true;
       try {
-        await adminRPC("card_admin_catalog_delete_v2", { p_kind: kind, p_id: item.id });
+        await adminRPC("card_admin_catalog_delete_v2", {
+          p_kind: kind,
+          p_id: item.id,
+        });
         if (generation !== current || !authorized) return;
         if (kind === "card") {
           invalidateCatalog();
-          baseCards = baseCards.filter(c => c.id !== item.id);
+          baseCards = baseCards.filter((c) => c.id !== item.id);
           overrides.delete(item.id);
           renderCards();
           await loadCards(true);
@@ -2928,7 +3162,9 @@
         if (generation === current && authorized) message("削除しました。");
       } catch (error) {
         if (generation === current && authorized) message(errorText(error));
-      } finally { button.disabled = false; }
+      } finally {
+        button.disabled = false;
+      }
     }
     async function loadVerseAdmin() {
       if (!requireAdminAction()) return;
@@ -2950,7 +3186,7 @@
         $("verse-admin-list").innerHTML = [...verseRows.values()]
           .map(
             (c) =>
-              `<article class="admin-card verse-catalog-card">${c.image ? `<img src="${esc(window.CARD_PRIMAGI.image(c.thumbnail || c.image))}" alt="${esc(c.name)}" loading="lazy">` : `<div class="pending-no-image">画像未登録</div>`}<div class="catalog-description"><h2>${esc(c.name)}</h2><p class="muted">${esc([c.code,c.rarity].filter(Boolean).join(" · "))}</p><p class="muted">${c.family === "primagi" ? "プリマジ" : c.family === "onegai" ? "おねがい" : "ひみつ"} · ${c.part_ids.length}部位</p></div><div class="catalog-row-actions"><button type="button" data-verse-admin-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-verse-admin-delete="${esc(c.id)}">強制削除</button></div></article>`,
+              `<article class="admin-card verse-catalog-card">${c.image ? `<img src="${esc(window.CARD_PRIMAGI.image(c.thumbnail || c.image))}" alt="${esc(c.name)}" loading="lazy">` : `<div class="pending-no-image">画像未登録</div>`}<div class="catalog-description"><h2>${esc(c.name)}</h2><p class="muted">${esc([c.code, c.rarity].filter(Boolean).join(" · "))}</p><p class="muted">${c.family === "primagi" ? "プリマジ" : c.family === "onegai" ? "おねがい" : "ひみつ"} · ${c.part_ids.length}部位</p></div><div class="catalog-row-actions"><button type="button" data-verse-admin-edit="${esc(c.id)}">編集</button><button type="button" class="danger" data-verse-admin-delete="${esc(c.id)}">強制削除</button></div></article>`,
           )
           .join("");
         $("verse-admin-prev").disabled = verseAdminPage === 0;
@@ -2981,8 +3217,15 @@
     };
     $("manual-verse-new").onclick = () => {
       if (!requireAdminAction()) return;
-      verseEditing = { id: null, family: "onegai", name: "", appearances: [],
-        parts: ["トップス","ボトムス","ワンピ","シューズ","アクセ"].map((slot, i) => ({ id: i + 1, slot, codes: [] })) };
+      verseEditing = {
+        id: null,
+        family: "onegai",
+        name: "",
+        appearances: [],
+        parts: ["トップス", "ボトムス", "ワンピ", "シューズ", "アクセ"].map(
+          (slot, i) => ({ id: i + 1, slot, codes: [] }),
+        ),
+      };
       renderVerseEditor(verseEditing);
     };
     function renderVerseEditor(c) {
@@ -3012,40 +3255,57 @@
               e.value.trim(),
             ]),
           );
-        const target = verseEditing, current = generation;
+        const target = verseEditing,
+          current = generation;
         const coordinate = values(
           document.querySelector(".verse-edit-coordinate"),
         );
         coordinate.appearances = JSON.parse(coordinate.appearances);
         const parts = [
           ...$("verse-editor-fields").querySelectorAll("[data-verse-part]"),
-        ].filter(root => target.id || root.querySelector("[data-include-part]").checked).map((root) => {
-          const v = values(root);
-          return {
-            ...v,
-            id: Number(root.dataset.versePart),
-            buzz: v.buzz === "" ? null : Number(v.buzz),
-            codes: v.codes
-              .split(/[,、\n]/)
-              .map((x) => x.trim())
-              .filter(Boolean),
-          };
-        });
+        ]
+          .filter(
+            (root) =>
+              target.id || root.querySelector("[data-include-part]").checked,
+          )
+          .map((root) => {
+            const v = values(root);
+            return {
+              ...v,
+              id: Number(root.dataset.versePart),
+              buzz: v.buzz === "" ? null : Number(v.buzz),
+              codes: v.codes
+                .split(/[,、\n]/)
+                .map((x) => x.trim())
+                .filter(Boolean),
+            };
+          });
         if (target.id) {
           await adminRPC("card_admin_verse_save", {
-            p_id: target.id, p_expected: target.edit_version, p_coordinate: coordinate, p_parts: parts,
+            p_id: target.id,
+            p_expected: target.edit_version,
+            p_coordinate: coordinate,
+            p_parts: parts,
           });
         } else {
-          if (!coordinate.name || parts.length === 0) throw new Error("コーデ名と構成部位を入力してください。");
+          if (!coordinate.name || parts.length === 0)
+            throw new Error("コーデ名と構成部位を入力してください。");
           if (!window.confirm(`「${coordinate.name}」を登録しますか？`)) return;
           await adminRPC("card_admin_verse_create_v1", {
-            p_family: $("manual-verse-family").value, p_coordinate: coordinate, p_parts: parts,
+            p_family: $("manual-verse-family").value,
+            p_coordinate: coordinate,
+            p_parts: parts,
           });
         }
         if (current !== generation || !authorized) return;
         $("verse-editor-dialog").close();
         if (target.id) await loadVerseAdmin();
-        if (current === generation && authorized) message(target.id ? "コーデとパーツの変更を保存しました。" : "コーデを登録しました。");
+        if (current === generation && authorized)
+          message(
+            target.id
+              ? "コーデとパーツの変更を保存しました。"
+              : "コーデを登録しました。",
+          );
       } catch (error) {
         if (authorized) $("verse-editor-status").textContent = errorText(error);
       } finally {
@@ -3165,9 +3425,24 @@
     };
 
     window.CARD_VISIBILITY_ADMIN_HOST = {
-      client: () => db, authorized: () => authorized, user: () => session?.user?.id,
-      generation: () => generation, showPage, errorText, timestamp, config,
-      getUsage: getUsageSnapshot, invalidateUsage, invalidateCatalog,
+      reloadUsers: () => {
+        usersRequest++;
+        userPage = 1;
+        userRows.clear();
+        paintUsers();
+        return loadUsers();
+      },
+      client: () => db,
+      authorized: () => authorized,
+      user: () => session?.user?.id,
+      generation: () => generation,
+      showPage,
+      errorText,
+      timestamp,
+      config,
+      getUsage: getUsageSnapshot,
+      invalidateUsage,
+      invalidateCatalog,
     };
     document.dispatchEvent(new Event("admin-host-ready"));
     async function initializeSession() {
