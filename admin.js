@@ -43,7 +43,7 @@
         );
       }
       if (/email not confirmed/i.test(detail))
-        return "一般サイトで届いた確認メールを開き、メール確認を完了してください。";
+        return "運営用DBのAuthで管理者メールアドレスが確認済みか確認してください。";
       return detail;
     };
     let persistSession = true;
@@ -129,7 +129,7 @@
     }
     if (config.publicSiteUrl) $("public-site-link").href = config.publicSiteUrl;
     else $("public-site-link").hidden = true;
-    const db = window.supabase.createClient(
+    const db = window.CARD_OPS_ADMIN.wrap(window.supabase.createClient(
       config.supabaseUrl,
       config.supabaseKey,
       {
@@ -142,7 +142,7 @@
         },
         global: { fetch: boundedFetch },
       },
-    );
+    ));
     let session = null,
       authorized = false,
       generation = 0,
@@ -906,75 +906,11 @@
       adminPresencePending = Promise.resolve(),
       adminPresenceSent = 0;
     function recordAdminPresence(logout = false) {
-      if (
-        !session ||
-        (!logout &&
-          (document.hidden ||
-            adminPresenceLoggingOut ||
-            Date.now() - adminPresenceSent < 40000))
-      )
-        return Promise.resolve();
-      const uid = session.user.id;
-      adminPresenceSent = Date.now();
-      adminPresencePending = adminPresencePending
-        .catch(() => {})
-        .then(async () => {
-          if (
-            (session && session.user.id !== uid) ||
-            (!logout && (!session || adminPresenceLoggingOut))
-          )
-            return;
-          const controller = new AbortController(),
-            timer = setTimeout(() => controller.abort(), 4000);
-          try {
-            let request = db.rpc("card_account_presence_touch", {
-              p_logout: logout,
-              p_all: false,
-            });
-            if (typeof request.abortSignal === "function")
-              request = request.abortSignal(controller.signal);
-            const r = await request;
-            if (r.error) adminPresenceSent = 0;
-          } catch {
-            adminPresenceSent = 0;
-          } finally {
-            clearTimeout(timer);
-          }
-        });
-      return adminPresencePending;
+      // The operations administrator is not an account of a registrant DB.
+      return Promise.resolve();
     }
-    setInterval(() => {
-      if (authorized) recordAdminPresence();
-    }, 45000);
-    document.addEventListener("visibilitychange", () => {
-      if (authorized && !document.hidden) recordAdminPresence();
-    });
-    async function recordAdminConfirmedLogout(previous) {
-      if (!previous?.access_token) return;
-      const controller = new AbortController(),
-        timer = setTimeout(() => controller.abort(), 3000);
-      try {
-        await fetch(
-          new URL(
-            "/rest/v1/rpc/card_account_presence_touch",
-            config.supabaseUrl,
-          ).href,
-          {
-            method: "POST",
-            headers: {
-              apikey: config.supabaseKey,
-              Authorization: "Bearer " + previous.access_token,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ p_logout: true, p_all: false }),
-            signal: controller.signal,
-            cache: "no-store",
-          },
-        );
-      } catch {
-      } finally {
-        clearTimeout(timer);
-      }
+    async function recordAdminConfirmedLogout() {
+      // Local auth sign-out is sufficient; no registrant presence is attributed to this administrator.
     }
     let userState = "all",
       userShare = "all",
@@ -2112,6 +2048,7 @@
         "logs",
         "contacts",
         "usage",
+        "statistics",
         "operations",
         "verse",
         "announcements",
@@ -2175,11 +2112,18 @@
             ["認証API", "/auth/v1/settings"],
             ["カードDB", "/rest/v1/card_catalog?select=id&limit=1"],
           ].map(async ([label, path]) => {
+            if (label === "カードDB" && (!authorized || !session?.access_token)) {
+              return "管理DB：管理者ログイン・二段階認証の完了後に確認します。";
+            }
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 8000);
             try {
               const response = await fetch(config.supabaseUrl + path, {
-                headers: { apikey: config.supabaseKey },
+                headers: {
+                  apikey: config.supabaseKey,
+                  ...(label === "カードDB" && session?.access_token
+                    ? { Authorization: "Bearer " + session.access_token } : {}),
+                },
                 signal: controller.signal,
                 cache: "no-store",
               });
@@ -2225,12 +2169,7 @@
         const identifier = $("admin-email").value.normalize("NFKC").trim();
         let email = identifier.toLowerCase();
         if (!identifier.includes("@")) {
-          const lookup = await db.rpc("card_album_login_identifier", {
-            p_id: identifier.toUpperCase(),
-            p_password: $("admin-password").value,
-          });
-          if (lookup.error) throw lookup.error;
-          email = lookup.data;
+          throw Error("運営用DBに作成した管理者のメールアドレスを入力してください。");
         }
         const { data, error } = await db.auth.signInWithPassword({
           email,
@@ -2381,8 +2320,7 @@
       if (!authorized || !session) throw Error("ログインし直してください。");
       if (
         action === "delete-user" &&
-        body?.database &&
-        body.database !== "main"
+        body?.database
       ) {
         if (!window.CARD_ADMIN_SHARDS)
           throw Error("DB管理機能を再読み込みしてください。");
@@ -2729,7 +2667,7 @@
       }
     }
     async function loadUsage() {
-      if (window.CARD_ADMIN_SHARDS) return window.CARD_ADMIN_SHARDS.loadUsage();
+      if (window.CARD_ADMIN_SHARDS?.loadUsage) return window.CARD_ADMIN_SHARDS.loadUsage();
       if (!authorized || usageBusy) return;
       usageBusy = true;
       const current = generation;
@@ -3133,8 +3071,8 @@
       const label = item.name || item.code || item.id;
       const detail =
         kind === "card"
-          ? "このカードの所持記録・お気に入り・交換希望・QR・公開設定も削除されます。"
-          : "このコーデの一式所持記録・お気に入り・交換希望・フルコーデのQR・公開設定も削除されます。パーツとその所持記録・QRは残ります。";
+          ? "運営用DBのカード情報・修正情報・公開設定を削除します。登録者DBの所持記録やQRは削除しません。"
+          : "運営用DBのコーデ情報・公開設定を削除します。パーツ情報と登録者DBの所持記録・QRは残ります。";
       if (
         !window.confirm(
           `「${label}」を強制削除しますか？\n\n${detail}\nこの操作は元に戻せません。`,

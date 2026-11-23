@@ -494,6 +494,8 @@ ${url}`;
         throw Error("招待URLを発行できませんでした。");
       url.search = "";
       url.searchParams.set("view", "invite");
+      const selectedDB = window.CARD_OPS_ADMIN.database();
+      if (selectedDB !== "main") url.searchParams.set("db", selectedDB);
       url.hash = "invite=" + data.token;
       $("invitation-url").value = url.href;
       $("invitation-copy-text").value = invitationText(url.href);

@@ -61,7 +61,7 @@ window.ADMIN_WORKFLOW.mount((host) => {
     try {
       const result = await host
         .client()
-        .rpc("card_qr_admin_user_settings", { p_user: host.user() });
+        .rpc("card_qr_admin_global_settings_v150", {});
       if (!current() || id !== request) return;
       if (result.error) throw result.error;
       const value = result.data?.global_limit;

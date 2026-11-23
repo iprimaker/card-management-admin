@@ -1,0 +1,52 @@
+.ops-connection {
+  margin: 18px 0 24px;
+  padding: 18px 22px;
+  border: 1px solid #ded4ec;
+  border-radius: 16px;
+  background: #faf7fd;
+  color: #51435e;
+}
+.ops-connection-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.ops-connection strong {
+  display: block;
+  font-size: 14px;
+}
+.ops-connection p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.ops-connection label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 12px;
+}
+.ops-connection select {
+  min-width: 180px;
+  padding: 9px 12px;
+  border: 1px solid #d6cbe2;
+  border-radius: 9px;
+  background: white;
+  color: inherit;
+  font: inherit;
+}
+.ops-connection-status {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .ops-connection {
+    padding: 16px;
+  }
+  .ops-connection label, .ops-connection select {
+    width: 100%;
+  }
+}
