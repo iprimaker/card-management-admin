@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://dwhlljqfredkiijrimwe.supabase.co; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>登録者DBの表示確認｜カードアルバム</title>
+  <link rel="stylesheet" href="./operations-setup.css?v=20261123-v147">
+  <link rel="stylesheet" href="./operations-preview.css?v=20261123-v149">
+  <script defer src="./vendor/supabase.js"></script>
+  <script defer src="./operations-preview.js?v=20261123-v149"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">カードアルバム · 管理機能の移行</p>
+      <h1>登録者DBの表示確認</h1>
+      <p>運営用DBの管理者で、各DBの登録者と使用状況を確認できます。</p>
+      <span class="badge">閲覧のみ · 設定変更・削除は無効</span>
+    </header>
+    <section class="panel">
+      <div class="toolbar">
+        <label>登録者DB<select id="database" disabled><option value="">接続先を取得してください</option></select></label>
+        <button type="button" id="connect">接続先を取得</button>
+        <a href="./operations-setup.html">ログイン・二段階認証</a>
+      </div>
+      <p id="message" role="status" aria-live="polite">ログイン済みのブラウザで、接続先を取得してください。</p>
+    </section>
+    <section class="panel" id="content" hidden>
+      <div class="tabs" role="group" aria-label="確認する情報">
+        <button type="button" id="users-tab" aria-pressed="true">登録者一覧</button>
+        <button type="button" id="usage-tab" class="secondary" aria-pressed="false">使用状況</button>
+      </div>
+      <div id="users-panel">
+        <form id="filters" class="toolbar">
+          <label class="search">検索<input id="query" maxlength="100" placeholder="ニックネーム・アルバムID" autocomplete="off"></label>
+          <label>並び順<select id="sort">
+            <option value="newest">登録が新しい順</option><option value="oldest">登録が古い順</option>
+            <option value="recent">最近利用した順</option><option value="inactive">未利用期間が長い順</option>
+            <option value="cards_desc">カード所持数が多い順</option><option value="cards_asc">カード所持数が少ない順</option>
+            <option value="verse_desc">バース所持数が多い順</option><option value="verse_asc">バース所持数が少ない順</option>
+          </select></label>
+          <button type="submit" id="apply">表示</button>
+        </form>
+        <p id="total" class="notice"></p>
+        <div class="table-wrap" tabindex="0" role="region" aria-label="登録者一覧。横にスクロールできます">
+          <table>
+            <thead><tr><th>状態</th><th>登録者・アルバムID</th><th>登録日</th><th>最終利用</th><th>未利用日数</th><th>所持数</th></tr></thead>
+            <tbody id="users"></tbody>
+          </table>
+        </div>
+        <nav class="pagination" aria-label="登録者一覧のページ">
+          <button type="button" class="secondary" id="previous" disabled>前へ</button>
+          <span id="page"></span>
+          <button type="button" class="secondary" id="next" disabled>次へ</button>
+        </nav>
+      </div>
+      <div id="usage-panel" hidden>
+        <div id="metrics" class="metrics"></div>
+        <p class="notice">DBの現在の使用量です。月間の通信量や請求額を表すものではありません。</p>
+        <button type="button" class="secondary" id="refresh-usage">使用状況を更新</button>
+      </div>
+    </section>
+    <section class="panel" id="report-panel" hidden>
+      <h2>表示確認の結果</h2>
+      <p class="notice">下記には表示の成否・接続先・件数のみ含みます。登録者の名前・IDや認証情報は含みません。</p>
+      <textarea id="report" readonly rows="12" aria-label="確認結果"></textarea>
+      <div class="actions"><button type="button" id="copy">結果をコピー</button></div>
+    </section>
+    <footer>通常の管理画面と一般サイトの接続先は、次の切り替え段階まで従来のままです。</footer>
+  </main>
+</body>
+</html>

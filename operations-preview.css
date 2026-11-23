@@ -1,0 +1,109 @@
+main {
+  width: min(1280px, calc(100% - 32px));
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 14px;
+}
+.toolbar label {
+  margin: 0;
+  flex: 1 1 220px;
+}
+.toolbar .search {
+  flex: 2 1 260px;
+}
+.toolbar a {
+  padding: 10px 0;
+  font-size: 13px;
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e0e8f0;
+  border-radius: 12px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th, td {
+  padding: 13px 12px;
+  border-bottom: 1px solid #e8edf3;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: #f3f7fb;
+  white-space: nowrap;
+  font-weight: 650;
+}
+td {
+  min-width: 90px;
+}
+td:nth-child(2), td:last-child {
+  min-width: 200px;
+}
+td strong, td small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+td small {
+  margin-top: 4px;
+  color: #64768a;
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding-top: 20px;
+  font-size: 13px;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+.metric {
+  padding: 18px;
+  border: 1px solid #dce7f2;
+  border-radius: 12px;
+  background: #f8fbfe;
+}
+.metric span, .metric strong {
+  display: block;
+}
+.metric span {
+  font-size: 13px;
+  color: #64768a;
+  margin-bottom: 9px;
+}
+.metric strong {
+  font-size: 22px;
+}
+#message {
+  margin-bottom: 0;
+  padding: 0;
+}
+.actions {
+  margin-top: 16px;
+}
+@media (max-width: 560px) {
+  .toolbar label, .toolbar .search {
+    flex-basis: 100%;
+  }
+  .toolbar button {
+    margin-left: auto;
+  }
+  .pagination {
+    gap: 10px;
+  }
+}
