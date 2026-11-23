@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://dwhlljqfredkiijrimwe.supabase.co wss://dwhlljqfredkiijrimwe.supabase.co; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>運営用DBの管理者設定｜カードアルバム</title>
+  <link rel="stylesheet" href="./operations-setup.css?v=20261123-v147">
+  <script defer src="./vendor/supabase.js"></script>
+  <script defer src="./operations-setup.js?v=20261123-v147"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">カードアルバム · 運営用DB</p>
+      <h1>管理者の接続を確認</h1>
+      <p>新しい運営用DBへのログインと二段階認証を設定します。現在の管理画面は引き続き利用できます。</p>
+    </header>
+    <section class="panel" id="login-panel">
+      <h2>1．新DBの管理者でログイン</h2>
+      <p>新しい運営用DBで作成し、管理者権限を付与したアカウントを使用してください。</p>
+      <form id="login-form">
+        <label>メールアドレス<input id="email" type="email" autocomplete="username" maxlength="320" required></label>
+        <label>パスワード<input id="password" type="password" autocomplete="current-password" required></label>
+        <div class="actions"><button type="submit">ログイン</button></div>
+      </form>
+    </section>
+    <section class="panel" id="mfa-panel" hidden>
+      <h2>2．二段階認証</h2>
+      <p id="mfa-help"></p>
+      <label id="factor-label" hidden>認証アプリ<select id="factor"></select></label>
+      <button type="button" id="enroll" hidden>認証アプリを登録する</button>
+      <div id="enrollment" hidden>
+        <img id="mfa-qr" alt="ご自身の認証アプリに登録するQRコード">
+        <label>手動登録用キー<input id="mfa-secret" type="text" readonly autocomplete="off" spellcheck="false"></label>
+        <p class="notice">QRコードとキーは他の人に送らないでください。登録後も認証アプリを保管してください。</p>
+      </div>
+      <form id="mfa-form" hidden>
+        <label>認証アプリの6桁コード<input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
+        <div class="actions"><button type="submit">コードを確認</button></div>
+      </form>
+    </section>
+    <section class="panel" id="result-panel" hidden>
+      <span class="badge">接続確認済み</span>
+      <h2>新DBの管理者認証が完了しました</h2>
+      <p>まだ準備段階のため、共通情報の編集・登録者DBへの管理操作・一般向け公開は有効にしていません。</p>
+      <label>確認結果<textarea id="report" rows="13" readonly spellcheck="false"></textarea></label>
+      <p class="notice">この確認結果をコピーして送ってください。パスワードや認証用キーは含まれていません。</p>
+      <div class="actions"><button type="button" id="copy">結果をコピー</button></div>
+    </section>
+    <p id="message" role="status" aria-live="polite"></p>
+    <div class="actions"><button type="button" id="logout" class="secondary" hidden>ログアウト</button></div>
+    <footer>現在のサイトの接続先や利用者の記録は、この画面では変更しません。</footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,27 @@
+:root{font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;color:#263a50;background:#f2f7fc;color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0}
+main{width:min(700px,calc(100% - 32px));margin:44px auto 32px}
+header{padding:0 8px 16px}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.06em;color:#4276a9}
+h1{font-size:clamp(23px,5vw,31px);line-height:1.4;margin:10px 0}
+h2{font-size:19px;margin:4px 0 15px}
+p{line-height:1.85;font-size:14px}
+.panel{padding:26px;margin:18px 0;background:#fff;border:1px solid #dce7f2;border-radius:20px;box-shadow:0 7px 28px #193d6408}
+label{display:grid;gap:8px;font-size:13px;font-weight:650;margin:20px 0}
+input,select,textarea{width:100%;min-width:0;padding:12px;border:1px solid #c9d8e7;border-radius:10px;background:white;color:inherit;font:inherit;font-size:16px}
+textarea{font:12px/1.75 ui-monospace,monospace;resize:vertical}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:3px solid #91bdf0;outline-offset:3px}
+.actions{display:flex;justify-content:flex-end;gap:12px}
+button{border:0;border-radius:11px;padding:12px 20px;background:#3475b5;color:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+button.secondary{background:#e2ecf6;color:#355b7d}
+button:disabled{opacity:.55;cursor:wait}
+.notice,footer{font-size:12px;line-height:1.8;color:#64768a}
+.badge{display:inline-block;padding:5px 11px;border-radius:30px;margin-bottom:12px;background:#e5f6ee;color:#276747;font-size:12px;font-weight:700}
+#mfa-qr{display:block;width:min(230px,100%);height:auto;margin:24px auto}
+#mfa-secret{font-family:ui-monospace,monospace}
+#code{text-align:center;letter-spacing:.3em}
+#message{padding:0 8px;overflow-wrap:anywhere;min-height:24px}
+[hidden]{display:none!important}
+footer{margin:24px 8px}
+@media(max-width:480px){main{margin-top:26px}.panel{padding:20px}button{max-width:100%}}
