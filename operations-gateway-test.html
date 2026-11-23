@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://dwhlljqfredkiijrimwe.supabase.co wss://dwhlljqfredkiijrimwe.supabase.co; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>登録者DBへの管理接続確認｜カードアルバム</title>
+  <link rel="stylesheet" href="./operations-setup.css?v=20261123-v147">
+  <script defer src="./vendor/supabase.js"></script>
+  <script defer src="./operations-gateway-test.js?v=20261123-v148"></script>
+</head>
+<body><main>
+  <header><p class="eyebrow">カードアルバム · 管理機能の移行</p><h1>登録者DBへの接続確認</h1>
+    <p>新しい運営用DBを経由して、元DB・Aなどの管理用接続を確認します。</p></header>
+  <section class="panel"><h2>管理接続をテスト</h2>
+    <p>このテストでは利用者情報の変更・削除やお問い合わせへの返信は行いません。新DBの管理者ログインと二段階認証を完了してから実行してください。</p>
+    <div class="actions"><button id="check" type="button">接続を確認</button></div>
+    <p><a href="./operations-setup.html">管理者のログイン・二段階認証へ</a></p>
+  </section>
+  <section id="result-panel" class="panel" hidden><h2>確認結果</h2>
+    <label>結果をコピーして送ってください<textarea id="report" readonly rows="20" spellcheck="false"></textarea></label>
+    <div class="actions"><button id="copy" type="button">結果をコピー</button></div>
+  </section>
+  <p id="message" role="status" aria-live="polite"></p>
+  <footer>通常の管理画面・一般サイトの接続先は、この画面では変更しません。</footer>
+</main></body>
+</html>
