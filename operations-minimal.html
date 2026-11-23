@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://dwhlljqfredkiijrimwe.supabase.co; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; object-src 'none'; form-action 'none'">
+    <title>最小同期の照合｜カードアルバム</title>
+    <link rel="stylesheet" href="./operations-setup.css?v=20261123-v147">
+    <script defer src="./vendor/supabase.js"></script>
+    <script defer src="./operations-minimal.js?v=20261123-v156"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">カードアルバム · DB移行</p>
+        <h1>最小同期を照合</h1>
+        <p>必要な情報だけを登録者DBにコピーし、現在の登録内容と比較します。</p>
+      </header>
+      <section class="panel">
+        <h2>コピー先を選択</h2>
+        <p>今回のコピーは確認専用です。既存データ・参照先・通常の管理画面は変更しません。</p>
+        <p><a href="./operations-setup.html">管理者のログイン・二段階認証</a></p>
+        <div class="actions"><button type="button" class="secondary" id="reload">接続先を取得</button></div>
+        <label for="database">登録者DB</label>
+        <select id="database" disabled></select>
+        <div class="actions">
+          <button type="button" id="apply" disabled>コピーして照合</button>
+        </div>
+      </section>
+      <p id="message" role="status" aria-live="polite">管理者の認証と接続先を確認しています…</p>
+      <section class="panel" id="result-panel" hidden>
+        <h2>照合結果</h2>
+        <label for="report">確認結果</label>
+        <textarea id="report" readonly rows="22" spellcheck="false"></textarea>
+        <div class="actions"><button type="button" id="copy">結果をコピー</button></div>
+      </section>
+    </main>
+  </body>
+</html>
