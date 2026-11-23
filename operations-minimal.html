@@ -8,25 +8,26 @@
     <title>最小同期の照合｜カードアルバム</title>
     <link rel="stylesheet" href="./operations-setup.css?v=20261123-v147">
     <script defer src="./vendor/supabase.js"></script>
-    <script defer src="./operations-minimal.js?v=20261123-v156"></script>
+    <script defer src="./operations-minimal.js?v=20261124-v160"></script>
   </head>
   <body>
     <main>
       <header>
         <p class="eyebrow">カードアルバム · DB移行</p>
-        <h1>最小同期を照合</h1>
-        <p>必要な情報だけを登録者DBにコピーし、現在の登録内容と比較します。</p>
+        <h1>最小同期の状態を確認</h1>
+        <p>変更がある場合だけ最小情報を送り、登録者DBの同期状態を確認します。</p>
       </header>
       <section class="panel">
-        <h2>コピー先を選択</h2>
-        <p>今回のコピーは確認専用です。既存データ・参照先・通常の管理画面は変更しません。</p>
+        <h2>確認するDBを選択</h2>
+        <p>所持記録やQRの内容は送信しません。通常の管理画面のデザインは維持します。</p>
         <p><a href="./operations-setup.html">管理者のログイン・二段階認証</a></p>
         <div class="actions"><button type="button" class="secondary" id="reload">接続先を取得</button></div>
         <label for="database">登録者DB</label>
         <select id="database" disabled></select>
         <div class="actions">
-          <button type="button" id="apply" disabled>コピーして照合</button>
+          <button type="button" id="apply" disabled>選択したDBを確認</button>
         </div>
+        <p class="actions"><button type="button" id="all" disabled>全DBを確認</button></p>
       </section>
       <p id="message" role="status" aria-live="polite">管理者の認証と接続先を確認しています…</p>
       <section class="panel" id="result-panel" hidden>

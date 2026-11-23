@@ -22,6 +22,7 @@
     $("reload").disabled = busy;
     $("database").disabled = busy || !$("database").options.length;
     $("apply").disabled = busy || !$("database").value;
+    $("all").disabled = busy || !$("database").options.length;
   }
   async function call(body) {
     const session = await db.auth.getSession();
@@ -40,7 +41,7 @@
       cache: "no-store",
     });
     const result = await response.json().catch(() => null);
-    if (!result || result.version !== "v156") throw Error("最小同期APIの応答を確認できません。");
+    if (!result || result.version !== "v160") throw Error("最小同期APIの応答を確認できません。");
     return { response, result };
   }
   async function run(action) {
@@ -52,9 +53,9 @@
     $("result-panel").hidden = true;
     $("report").value = "";
     $("message").textContent = action === "list"
-      ? "接続先を確認しています…" : "選択したDBへコピーし、内容を照合しています…";
+      ? "接続先を確認しています…" : action === "sync_all" ? "全DBの同期状態を確認しています…" : "選択したDBの同期状態を確認しています…";
     try {
-      const { response, result } = await call(action === "list" ? { action } : { action, database });
+      const { response, result } = await call(action === "sync" ? { action, database } : { action });
       if (ticket !== epoch) return;
       if (action === "list" && response.ok && result.success && Array.isArray(result.databases)) {
         $("database").replaceChildren();
@@ -65,12 +66,12 @@
           $("database").append(option);
         }
         if (result.databases.some((row) => row.key === database)) $("database").value = database;
-        $("message").textContent = "元、Aの順に、それぞれコピーと照合を実行してください。";
+        $("message").textContent = "全DBの同期状態を確認できます。変更がある場合だけ最小データを送信します。";
       } else {
         $("report").value = JSON.stringify(result, null, 2);
         $("result-panel").hidden = false;
         $("message").textContent = result.success === true
-          ? "コピーと照合が完了しました。結果をコピーして送ってください。"
+          ? "同期状態の確認が完了しました。結果をコピーして送ってください。"
           : "確認が必要です。下の結果をコピーして送ってください。";
       }
     } catch (error) {
@@ -87,6 +88,7 @@
   }
   $("reload").onclick = () => run("list");
   $("apply").onclick = () => run("sync");
+  $("all").onclick = () => run("sync_all");
   $("copy").onclick = async () => {
     try {
       await navigator.clipboard.writeText($("report").value);
