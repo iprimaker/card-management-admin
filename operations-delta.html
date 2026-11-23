@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://dwhlljqfredkiijrimwe.supabase.co; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; object-src 'none'; form-action 'none'">
+    <title>共通情報の差分反映｜カードアルバム</title>
+    <link rel="stylesheet" href="./operations-setup.css?v=20261123-v147">
+    <script defer src="./vendor/supabase.js"></script>
+    <script defer src="./operations-delta.js?v=20261123-v153"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">カードアルバム · DB移行</p>
+        <h1>共通情報の差分を反映</h1>
+        <p>元DBの最新データを取得し、運営用DBの次の2テーブルだけに反映します。</p>
+      </header>
+      <section class="panel">
+        <h2>今回の反映対象</h2>
+        <p>お知らせ<br>メンテナンスの事前通知</p>
+        <p>元DBの内容は変更しません。通常の管理画面のデザイン・一般サイトの接続先・共通編集の有効化も変更しません。</p>
+        <p><a href="./operations-setup.html">管理者のログイン・二段階認証</a></p>
+        <div class="actions"><button type="button" id="apply">2テーブルの差分を反映</button></div>
+      </section>
+      <p id="message" role="status" aria-live="polite"></p>
+      <section class="panel" id="result-panel" hidden>
+        <h2>反映結果</h2>
+        <label>確認結果<textarea id="report" readonly rows="20" spellcheck="false"></textarea></label>
+        <div class="actions"><button type="button" id="copy">結果をコピー</button></div>
+      </section>
+    </main>
+  </body>
+</html>
