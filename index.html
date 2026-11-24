@@ -10,7 +10,9 @@
     <link href="./admin.css?v=20261123-v150" rel="stylesheet" />
     <link rel="stylesheet" href="./admin-shards.css?v=20261123-v150" />
     <link rel="stylesheet" href="./operations-connection.css?v=20261123-v150" />
+    <link rel="stylesheet" href="./admin-errors.css?v=20261124-v180" />
     <link rel="stylesheet" href="./admin-management.css?v=20261124-v179" />
+    <script defer src="./diagnostics.js?v=20261124-v180"></script>
     <script src="./startup.js?v=20261117-admin-catalog-v1"></script>
     <script
       defer=""
@@ -27,8 +29,8 @@
       defer
       src="./card-image-transform.js?v=20261117-image-adjust-v1"
     ></script>
-    <script defer src="./operations-connection.js?v=20261124-v179"></script>
-    <script defer="" src="./admin.js?v=20261124-v179"></script>
+    <script defer src="./operations-connection.js?v=20261124-v180"></script>
+    <script defer="" src="./admin.js?v=20261124-v180"></script>
     <script defer src="./admin-shards.js?v=20261124-v179"></script>
     <link rel="apple-touch-icon" href="./icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
@@ -175,7 +177,10 @@
             hidden=""
             id="contact-alert"
           ></span></button
-        ><button type="button" data-page="statistics">
+        ><button type="button" data-page="errors">
+          <span aria-hidden="true">!</span><span>エラー記録</span>
+        </button>
+        <button type="button" data-page="statistics">
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -606,6 +611,7 @@
             ><button id="contact-next">次へ</button>
           </div>
         </section>
+        <section id="admin-errors" hidden></section>
         <section id="admin-statistics" hidden></section>
         <section hidden="" id="admin-usage">
           <div class="section-heading">
@@ -1410,9 +1416,10 @@
       </div>
     </dialog>
     <script defer src="./admin-statistics.js?v=20261124-v162"></script>
+    <script defer src="./admin-errors.js?v=20261124-v180"></script>
     <script defer src="./admin-operations.js?v=20261124-v179"></script>
-    <script defer src="./card-visibility-admin.js?v=20261124-v179"></script>
-    <script defer src="./private-qr-admin.js?v=20261124-v179"></script>
-    <script defer src="./maintenance-warning-admin.js?v=20261124-v179"></script>
+    <script defer src="./card-visibility-admin.js?v=20261124-v180"></script>
+    <script defer src="./private-qr-admin.js?v=20261124-v180"></script>
+    <script defer src="./maintenance-warning-admin.js?v=20261124-v180"></script>
   </body>
 </html>

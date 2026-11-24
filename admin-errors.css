@@ -1,0 +1,97 @@
+.error-search {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid #e6dced;
+  border-radius: 14px;
+  background: #fbf8fd;
+}
+.error-search label {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  color: #776185;
+  min-width: 0;
+}
+.error-search label:first-child {
+  flex: 1 1 280px;
+}
+.error-search input,
+.error-search select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  padding: 10px;
+  border: 1px solid #ddd1e6;
+  border-radius: 9px;
+  background: white;
+  font: inherit;
+}
+.error-record {
+  margin: 12px 0;
+  padding: 16px;
+  border: 1px solid #e8dfee;
+  border-radius: 12px;
+  background: #fff;
+}
+.error-record summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  cursor: pointer;
+  align-items: center;
+}
+.error-record summary strong {
+  flex: 1 1 230px;
+  font-size: 14px;
+}
+.error-record summary span,
+.error-record time {
+  color: #8a7893;
+  font-size: 12px;
+}
+.error-record dl {
+  display: grid;
+  grid-template-columns: 145px minmax(0, 1fr);
+  font-size: 12px;
+}
+.error-record dt,
+.error-record dd {
+  margin: 0;
+  padding: 9px 0;
+  border-bottom: 1px solid #f0eaf4;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+.error-record dt {
+  color: #8a7893;
+}
+.error-dictionary {
+  padding: 18px;
+  border: 1px solid #e4d9ec;
+  border-radius: 12px;
+  margin-top: 24px;
+}
+.error-dictionary summary {
+  cursor: pointer;
+  line-height: 1.8;
+}
+.error-dictionary details {
+  padding: 10px 0;
+  border-bottom: 1px solid #ece5f1;
+  font-size: 12px;
+}
+@media (max-width: 500px) {
+  .error-record dl {
+    grid-template-columns: 105px minmax(0, 1fr);
+  }
+  .error-search {
+    padding: 14px;
+  }
+  .error-search button {
+    width: 100%;
+  }
+}

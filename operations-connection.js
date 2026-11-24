@@ -104,6 +104,13 @@
         failure.code = result?.error_code || "GATEWAY_FAILED";
         throw failure;
       }
+      if (result.complete === false)
+        window.CARD_DIAGNOSTICS?.report(null, {
+          operation: "bulk_partial",
+          stage: "response",
+          status: 200,
+          target: "operations",
+        });
       if (result.version !== "v150")
         throw Error("運営用DBのadmin-databasesをv150に更新してください。");
       if (body.action === "rpc" && result.database !== body.database)

@@ -28,7 +28,7 @@
       );
     }
     let lastConnectionFailure = "";
-    const errorText = (error) => {
+    const describeAdminError = (error) => {
       const detail = error?.message || String(error || "不明なエラー");
       if (/abort|timeout/i.test(detail))
         return "通信がタイムアウトしました。接続を確認して再試行してください。";
@@ -45,6 +45,13 @@
       if (/email not confirmed/i.test(detail))
         return "運営用DBのAuthで管理者メールアドレスが確認済みか確認してください。";
       return detail;
+    };
+    const errorText = (error) => {
+      const detail = describeAdminError(error);
+      const receipt = window.CARD_DIAGNOSTICS?.feedback(error);
+      return receipt && !detail.includes(receipt)
+        ? detail + " エラーコード：" + receipt
+        : detail;
     };
     let persistSession = true;
     try {
@@ -2047,6 +2054,7 @@
         "contacts",
         "usage",
         "statistics",
+        "errors",
         "operations",
         "verse",
         "announcements",
