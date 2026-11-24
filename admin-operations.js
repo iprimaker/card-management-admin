@@ -1,264 +1,518 @@
-/* 運営設定・招待の画面。使用状況の描画とは分離する。 */
+/* Operations settings: explicit scope, per-database revisions and honest partial results. */
 window.ADMIN_WORKFLOW.mount((host) => {
   "use strict";
   const W = window.ADMIN_WORKFLOW,
     $ = (id) => document.getElementById(id),
     db = host.client();
-  const root = $("admin-operations");
-  const controlsScope = {
-    querySelectorAll: (selector) =>
-      [...root.querySelectorAll(selector)].filter(
-        (control) => !control.closest("[data-qr-global]"),
-      ),
-  };
+  const root = $("admin-operations"),
+    api = window.CARD_OPS_ADMIN;
+  const forms = [
+    "maintenance-controls",
+    "registration-controls",
+    "registration-capacity-controls",
+    "guest-browse-controls",
+    "cleanup-controls",
+    "qr-global-controls",
+  ];
+  const dirty = new Set();
   let request = 0,
     revision = 0,
     loading = false,
     saving = false,
     ready = false;
-  let configuredRegistrationMode = null;
-  let maintenance = null,
-    dirty = new Set();
-  const forms = ["maintenance-controls", "registration-controls", "registration-capacity-controls", "guest-browse-controls"];
-  let capacityRevision = null, guestBrowseRevision = null;
-  function renderGuestBrowse(data) {
-    if (!data || typeof data.enabled !== "boolean" || !Number.isSafeInteger(data.revision)) throw Error("閲覧専用ページの設定を確認できません。設定SQLを確認してください。");
-    guestBrowseRevision = data.revision;
-    $("guest-browse-enabled").checked = data.enabled;
-    $("guest-browse-state").textContent = data.enabled ? "ログインせずに利用できます" : "ログインせずに利用を停止中";
-    $("guest-browse-state").classList.toggle("paused", !data.enabled);
-  }
-  function renderCapacity(data) {
-    if (!data || typeof data.enabled !== "boolean" || !Number.isSafeInteger(data.revision)) throw Error("人数制限の設定を確認できません。設定SQLを確認してください。");
-    capacityRevision = data.revision;
-    $("registration-capacity-enabled").checked = data.enabled;
-    $("registration-capacity-minutes").value = data.window_minutes;
-    $("registration-capacity-maximum").value = data.max_registrations;
-    $("registration-capacity-state").textContent = `${data.window_minutes}分あたり最大${data.max_registrations}件発行 ／ 期間内 ${data.used}件` + (data.enabled ? (data.limited ? " · 上限に達しています" : " · 制限は有効です") : " · 制限は無効です");
-  }
-  const enableSettings = (enabled) =>
-    forms.forEach((id) =>
+  let configuredRegistrationMode = null,
+    maintenance = null,
+    capacityRevision = null,
+    guestBrowseRevision = null;
+  let snapshots = [],
+    entries = [],
+    scope = "all";
+  function enableSettings(enabled) {
+    for (const id of forms)
       $(id)
         .querySelectorAll("button,input,select,textarea")
-        .forEach((control) => {
-          control.disabled = !enabled;
-        }),
-    );
+        .forEach((c) => (c.disabled = !enabled));
+    $("operations-target").disabled = !enabled;
+    if (enabled)
+      $("qr-global-limit").disabled = $("qr-global-unlimited").checked;
+    $("reload-operations").disabled = loading || saving;
+  }
   enableSettings(false);
   W.protect(
     "operations",
     () => dirty.size > 0,
-    () => saving,
+    () => saving || loading,
     () => dirty.clear(),
   );
-  for (const id of forms)
-    $(id).addEventListener("input", () => {
-      dirty.add(id);
-      $(
-        id === forms[0]
-          ? "maintenance-save-message"
-          : id === forms[1] ? "registration-save-message" : id === forms[2] ? "registration-capacity-message" : "guest-browse-message",
-      ).textContent = "未保存の変更があります。";
-    });
-  function registrationStatus(status) {
-    const mode = configuredRegistrationMode ?? status.mode;
-    let text;
-    if (mode === "open") {
-      if (status.allowed === true) {
-        text = "通常登録を受付中";
-      } else if (status.capacity_limited === true) {
-        text = "通常登録を設定中 · ID発行間隔の制限により一時停止中";
-      } else if (status.shard_full === true) {
-        text = "通常登録を設定中 · このDBの登録人数が上限に達しています";
-      } else if (status.reservation_limited === true) {
-        text = "通常登録を設定中 · 発行済みIDの登録待ちにより一時停止中";
-      } else {
-        text = "通常登録を設定中 · 現在は受付停止中";
-        if (status.message) text += "：" + status.message;
-      }
-    } else if (mode === "invitation") {
-      text = status.invitation_allowed === true
-        ? "招待からのみ受付中"
-        : "招待制を設定中 · 現在は受付停止中";
-    } else if (mode === "closed") {
-      text = "招待を含め新規登録を停止中";
-    } else {
-      text = "受付方法を確認できません。状態を更新してください。";
-    }
-    $("registration-state").textContent = text;
-    $("registration-state").classList.toggle("paused", status.allowed !== true);
-  }
-  function maintenanceStatus(status) {
-    maintenance = status;
-    $("maintenance-stop").hidden = !status.maintenance;
-    $("maintenance-enabled").checked = !!status.maintenance;
+  forms.forEach((id) => $(id).addEventListener("input", () => dirty.add(id)));
+  const state = (id, text, paused) => {
+    $(id).textContent = text;
+    $(id).classList.toggle("paused", paused);
+  };
+  function maintenanceStatus(s) {
+    maintenance = s;
+    $("maintenance-enabled").checked = s.maintenance === true;
     $("maintenance-admin-message").value =
-      status.message ||
+      s.message ||
       "ただ今システムのメンテナンスをしていますので、アルバムを開けません。";
-    $("maintenance-ends-at").value = W.localDate(status.ends_at);
-    $("maintenance-state").textContent = status.maintenance
-      ? "メンテナンス中 · 一般サイトの利用を停止中"
-      : "通常運用中";
-    $("maintenance-state").classList.toggle("paused", !!status.maintenance);
+    $("maintenance-ends-at").value = W.localDate(s.ends_at);
+    $("maintenance-stop").hidden = !snapshots.some(
+      (row) => row.data.settings.maintenance_enabled,
+    );
+    state(
+      "maintenance-state",
+      s.maintenance ? "メンテナンス中" : "通常運用中",
+      s.maintenance,
+    );
+  }
+  function registrationStatus(s) {
+    const mode = configuredRegistrationMode || s.mode;
+    const label =
+      { open: "通常登録", invitation: "招待のみ", closed: "登録停止" }[mode] ||
+      "確認が必要です";
+    state(
+      "registration-state",
+      label +
+        (s.reservation_limited
+          ? " · 発行済みIDの登録待ち"
+          : s.shard_full
+            ? " · 人数上限に到達"
+            : s.capacity_limited
+              ? " · ID発行制限中"
+              : ""),
+      mode !== "open" || !s.allowed,
+    );
+  }
+  function renderCapacity(s) {
+    capacityRevision = s.revision;
+    $("registration-capacity-enabled").checked = s.enabled;
+    $("registration-capacity-minutes").value = s.window_minutes;
+    $("registration-capacity-maximum").value = s.max_registrations;
+    $("registration-capacity-state").textContent =
+      `${s.window_minutes}分あたり${s.max_registrations}件 · ${s.enabled ? "ON" : "OFF"}`;
+  }
+  function renderGuestBrowse(s) {
+    if (typeof s?.enabled !== "boolean" || !Number.isSafeInteger(s.revision))
+      throw Error("閲覧設定を確認できません。");
+    guestBrowseRevision = s.revision;
+    $("guest-browse-enabled").checked = s.enabled;
+    state(
+      "guest-browse-state",
+      s.enabled ? "ログインせずに利用できます" : "閲覧を停止中",
+      !s.enabled,
+    );
+  }
+  function validSnapshot(r) {
+    return (
+      r?.success === true &&
+      r.data?.settings &&
+      typeof r.data.settings.maintenance_enabled === "boolean" &&
+      ["open", "invitation", "closed"].includes(r.data.status?.mode) &&
+      typeof r.data.capacity?.enabled === "boolean" &&
+      Number.isSafeInteger(r.data.capacity.revision) &&
+      typeof r.data.cleanup?.enabled === "boolean" &&
+      Number.isSafeInteger(r.data.cleanup.revision) &&
+      Number.isSafeInteger(r.data.cleanup.inactive_days) &&
+      (r.data.qr?.global_limit === null ||
+        Number.isSafeInteger(r.data.qr?.global_limit))
+    );
+  }
+  function renderSnapshots() {
+    const first = snapshots[0].data,
+      s = first.settings;
+    configuredRegistrationMode = s.registration_enabled
+      ? "open"
+      : s.invitation_registration_enabled
+        ? "invitation"
+        : "closed";
+    $("registration-mode").value = configuredRegistrationMode;
+    $("registration-message").value =
+      s.pause_message || "現在、新規登録を停止しています。";
+    $("registration-db-limit").value = s.database_limit_bytes
+      ? Number(s.database_limit_bytes) / 1000000
+      : "";
+    maintenanceStatus({
+      maintenance: s.maintenance_enabled,
+      message: s.maintenance_message,
+      ends_at: s.maintenance_ends_at,
+    });
+    registrationStatus(first.status);
+    renderCapacity(first.capacity);
+    $("cleanup-enabled").checked = first.cleanup.enabled;
+    $("cleanup-days").value = first.cleanup.inactive_days;
+    state(
+      "cleanup-state",
+      `${first.cleanup.enabled ? "ON" : "OFF"} · 最終利用から${first.cleanup.inactive_days}日`,
+      first.cleanup.enabled,
+    );
+    const qr = first.qr.global_limit;
+    $("qr-global-unlimited").checked = qr === null;
+    $("qr-global-limit").value = qr ?? 100;
+    $("qr-global-limit").disabled = qr === null;
+    state(
+      "qr-global-state",
+      qr === null ? "上限なし" : `1人あたり${qr}件`,
+      false,
+    );
+    const container = $("operations-overview");
+    container.replaceChildren();
+    const table = document.createElement("table"),
+      head = table.createTHead().insertRow();
+    for (const title of [
+      "登録者DB",
+      "運用",
+      "新規登録",
+      "ID発行制限",
+      "自動削除",
+      "QR上限",
+    ]) {
+      const th = document.createElement("th");
+      th.textContent = title;
+      th.scope = "col";
+      head.append(th);
+    }
+    const body = table.createTBody();
+    for (const row of snapshots) {
+      const d = row.data,
+        c = d.settings,
+        tr = body.insertRow();
+      for (const value of [
+        row.label,
+        c.maintenance_enabled ? "メンテナンス" : "通常運用",
+        c.registration_enabled
+          ? "通常"
+          : c.invitation_registration_enabled
+            ? "招待のみ"
+            : "停止",
+        d.capacity.enabled
+          ? `${d.capacity.window_minutes}分／${d.capacity.max_registrations}件`
+          : "OFF",
+        d.cleanup.enabled ? `${d.cleanup.inactive_days}日` : "OFF",
+        d.qr.global_limit === null ? "上限なし" : `${d.qr.global_limit}件`,
+      ])
+        tr.insertCell().textContent = value;
+    }
+    container.append(table);
+    // A mixed form is never silently prefilled from one database.
+    const groups = [
+      [
+        "maintenance-controls",
+        (r) => [
+          r.data.settings.maintenance_enabled,
+          r.data.settings.maintenance_message || "",
+          r.data.settings.maintenance_ends_at || null,
+        ],
+      ],
+      [
+        "registration-controls",
+        (r) => [
+          r.data.settings.registration_enabled,
+          r.data.settings.invitation_registration_enabled,
+          r.data.settings.pause_message,
+          r.data.settings.database_limit_bytes,
+        ],
+      ],
+      [
+        "registration-capacity-controls",
+        (r) => [
+          r.data.capacity.enabled,
+          r.data.capacity.window_minutes,
+          r.data.capacity.max_registrations,
+        ],
+      ],
+      [
+        "cleanup-controls",
+        (r) => [r.data.cleanup.enabled, r.data.cleanup.inactive_days],
+      ],
+      ["qr-global-controls", (r) => [r.data.qr.global_limit]],
+    ];
+    for (const [id, values] of groups) {
+      const form = $(id);
+      form.querySelector(".mixed-settings")?.remove();
+      const mixed =
+        new Set(snapshots.map((r) => JSON.stringify(values(r)))).size > 1;
+      if (mixed) {
+        const note = document.createElement("p");
+        note.className = "mixed-settings";
+        note.textContent =
+          "DBごとに設定が異なります。表示値は「" +
+          snapshots[0].label +
+          "」の設定です。保存すると、このフォームの内容で選択範囲を統一します。";
+        form.prepend(note);
+        const stateId = {
+          "maintenance-controls": "maintenance-state",
+          "registration-controls": "registration-state",
+          "registration-capacity-controls": "registration-capacity-state",
+          "cleanup-controls": "cleanup-state",
+          "qr-global-controls": "qr-global-state",
+        }[id];
+        if (stateId) state(stateId, "DBごとに設定が異なります", false);
+      }
+    }
   }
   async function load(force = false) {
     if (!host.authorized() || loading || saving) return;
     if (
       dirty.size &&
-      (!force ||
-        !confirm("未保存の変更を破棄して、保存済みの設定を取得しますか？"))
+      (!force || !confirm("未保存の変更を破棄して設定を更新しますか？"))
     )
       return;
-    if (force) host.invalidateUsage();
     const current = W.checkpoint(host),
-      id = ++request,
-      atRevision = revision;
+      ticket = ++request;
     loading = true;
-    const unlock = W.lock(controlsScope);
-    $("operations-status").textContent = "運営設定を確認中…";
+    ready = false;
+    enableSettings(false);
+    $("operations-status").textContent = "選択範囲の設定を確認中…";
     try {
-      const [data, response, capacity, guest] = await Promise.all([
-        host.getUsage(),
-        db.rpc("card_album_registration_status_v3"),
-        db.rpc("card_admin_registration_capacity_get"),
+      entries = await api.registry();
+      const selector = $("operations-target");
+      selector.replaceChildren();
+      for (const row of [
+        { key: "all", label: "すべての登録者DB" },
+        ...entries,
+      ]) {
+        const option = document.createElement("option");
+        option.value = row.key;
+        option.textContent = row.label;
+        selector.append(option);
+      }
+      selector.value = scope;
+      const invite = $("invitation-database");
+      invite.replaceChildren(
+        ...entries.map((row) => {
+          const o = document.createElement("option");
+          o.value = row.key;
+          o.textContent = row.label;
+          return o;
+        }),
+      );
+      invite.value = api.database();
+      invite.disabled = false;
+      const [result, guest] = await Promise.all([
+        api.settings(scope, "load"),
         db.rpc("card_guest_browse_status"),
       ]);
-      if (!current() || id !== request || atRevision !== revision) return;
-      if (response.error) throw response.error;
-      if (capacity.error) throw capacity.error;
-      renderCapacity(capacity.data);
-      if (guest.error) throw guest.error;
-      renderGuestBrowse(guest.data);
+      if (!current() || ticket !== request) return;
       if (
-        !data?.settings ||
-        !["open", "invitation", "closed"].includes(response.data?.mode)
-      )
+        result.complete !== true ||
+        !Array.isArray(result.results) ||
+        !result.results.length ||
+        !result.results.every(validSnapshot)
+      ) {
+        const failures = (result.results || [])
+          .filter((r) => !validSnapshot(r))
+          .map((r) => r.label + "：" + (r.message || "設定を確認できません"));
         throw Error(
-          "運営設定を確認できません。設定SQLの適用状況を確認してください。",
+          failures.join(" ／ ") ||
+            "設定を確認できません。元・Aの設定SQLを確認してください。",
         );
-      const settings = data.settings;
-      configuredRegistrationMode = typeof settings.registration_enabled === "boolean"
-        ? settings.registration_enabled
-          ? "open"
-          : settings.invitation_registration_enabled === true ? "invitation" : "closed"
-        : response.data.mode;
-      $("registration-mode").value = configuredRegistrationMode;
-      $("registration-message").value = settings.pause_message || "";
-      $("registration-db-limit").value = settings.database_limit_bytes
-        ? Number(settings.database_limit_bytes) / 1000000
-        : "";
-      maintenanceStatus({
-        maintenance: settings.maintenance_enabled === true,
-        message: settings.maintenance_message,
-        ends_at: settings.maintenance_ends_at,
-      });
-      registrationStatus(response.data);
+      }
+      if (guest.error) throw guest.error;
+      snapshots = result.results;
+      renderSnapshots();
+      renderGuestBrowse(guest.data);
       dirty.clear();
       ready = true;
       $("operations-status").textContent =
-        "保存済みの設定を表示しています。日時は日本時間です。";
+        `適用先：${scope === "all" ? "全登録者DB（" + snapshots.length + "件）" : snapshots[0].label}。各フォームの保存ボタンで反映します。`;
     } catch (error) {
-      if (current() && id === request)
+      if (current() && ticket === request)
         $("operations-status").textContent = host.errorText(error);
     } finally {
-      if (id === request) {
+      if (current() && ticket === request) {
         loading = false;
-        unlock();
         enableSettings(ready);
+        $("operations-target").disabled = false;
       }
     }
   }
-  async function save(formId, messageId, rpc, args, apply) {
+  $("operations-target").onchange = () => {
+    const next = $("operations-target").value;
+    if (
+      dirty.size &&
+      !confirm("未保存の変更を破棄して適用先を変更しますか？")
+    ) {
+      $("operations-target").value = scope;
+      return;
+    }
+    dirty.clear();
+    scope = next;
+    load();
+  };
+  $("invitation-database").onchange = () => {
+    try {
+      api.changeDatabase($("invitation-database").value);
+    } catch (e) {
+      $("invitation-message").textContent = host.errorText(e);
+    }
+    $("invitation-database").value = api.database();
+  };
+  $("reload-operations").onclick = () => load(true);
+  async function save(formId, messageId, name, args) {
     if (!host.authorized() || !ready || loading || saving) return;
     const current = W.checkpoint(host),
-      atRequest = request;
+      ticket = request;
     saving = true;
-    const unlock = W.lock(controlsScope);
-    $(messageId).textContent = "設定を保存中…";
+    enableSettings(false);
+    $(messageId).textContent = "保存中…";
     try {
-      const result = await db.rpc(rpc, args);
-      if (!current() || atRequest !== request) return;
-      if (result.error) throw result.error;
-      // 書き込み成功後は、結果の検証に失敗した場合も古いキャッシュを破棄する。
-      revision++;
-      host.invalidateUsage();
-      apply(result.data);
-      dirty.delete(formId);
-      $(messageId).textContent = "設定を保存しました。";
-      // 関連する状態表示も再計算する。フォームの再取得・上書きは行わない。
-      try {
-        const status = await db.rpc("card_album_registration_status_v3");
-        if (current() && atRequest === request) {
-          if (!status.error && status.data) registrationStatus(status.data);
-          else
-            $(messageId).textContent +=
-              " 現在の受付状態は「状態を更新」で確認してください。";
+      if (name === "card_admin_guest_browse_save") {
+        const r = await db.rpc(name, args);
+        if (r.error) throw r.error;
+        if (current()) renderGuestBrowse(r.data);
+      } else {
+        const section =
+          name === "card_admin_cleanup_save_v179"
+            ? "cleanup"
+            : name === "card_admin_registration_capacity_save"
+              ? "capacity"
+              : null;
+        const revisions = section
+          ? Object.fromEntries(
+              snapshots.map((r) => [r.database, r.data[section].revision]),
+            )
+          : undefined;
+        const result = await api.settings(
+          scope,
+          name,
+          args,
+          revisions,
+          snapshots.map((row) => row.database),
+        );
+        if (!current() || ticket !== request) return;
+        if (result.complete !== true) {
+          ready = false;
+          $(messageId).textContent =
+            "DBごとの結果：" +
+            result.results
+              .map(
+                (r) =>
+                  r.label +
+                  "：" +
+                  (r.success ? "保存済み" : r.message || "未確認"),
+              )
+              .join(" ／ ") +
+            "。状態を更新して確認してください。";
+          return;
         }
-      } catch {
-        if (current() && atRequest === request)
-          $(messageId).textContent +=
-            " 現在の受付状態は「状態を更新」で確認してください。";
+        if (
+          !Array.isArray(result.results) ||
+          result.results.length !== snapshots.length ||
+          !result.results.every(
+            (r) =>
+              r.success && snapshots.some((s) => s.database === r.database),
+          )
+        )
+          throw Error("保存結果のDBを確認できません。");
+        for (const row of result.results) {
+          const d = snapshots.find((s) => s.database === row.database).data;
+          if (
+            (name === "card_admin_set_maintenance" &&
+              row.data?.maintenance !== args.p_enabled) ||
+            (name === "card_admin_set_registration_mode" &&
+              row.data?.mode !== args.p_mode) ||
+            (section &&
+              (!Number.isSafeInteger(row.data?.revision) ||
+                row.data.revision <= d[section].revision ||
+                row.data.enabled !== args.p_enabled ||
+                (section === "cleanup" &&
+                  row.data.inactive_days !== args.p_inactive_days) ||
+                (section === "capacity" &&
+                  (row.data.window_minutes !== args.p_window_minutes ||
+                    row.data.max_registrations !== args.p_max_registrations))))
+          )
+            throw Error(
+              "保存後の設定を確認できません。状態を更新してください。",
+            );
+          if (name === "card_admin_set_maintenance")
+            Object.assign(d.settings, {
+              maintenance_enabled: args.p_enabled,
+              maintenance_message: args.p_message,
+              maintenance_ends_at: args.p_ends_at,
+            });
+          else if (name === "card_admin_set_registration_mode") {
+            Object.assign(d.settings, {
+              registration_enabled: args.p_mode === "open",
+              invitation_registration_enabled: args.p_mode !== "closed",
+              pause_message: args.p_message,
+              database_limit_bytes: args.p_database_limit_bytes,
+            });
+            d.status = { ...row.data, mode: args.p_mode };
+          } else if (name === "card_qr_admin_limit") {
+            d.qr = { global_limit: args.p_limit };
+          } else if (section) {
+            if (!Number.isSafeInteger(row.data?.revision))
+              throw Error(
+                "保存後の設定を確認できません。状態を更新してください。",
+              );
+            d[section] = row.data;
+          }
+        }
+        // Do not replace other forms with unsaved edits.
+        const unsaved = forms
+          .filter((id) => id !== formId && dirty.has(id))
+          .map((id) => [
+            $(id),
+            [...$(id).querySelectorAll("input,select,textarea")].map((c) => [
+              c,
+              c.value,
+              c.checked,
+            ]),
+          ]);
+        renderSnapshots();
+        for (const [, controls] of unsaved)
+          for (const [control, value, checked] of controls) {
+            control.value = value;
+            control.checked = checked;
+          }
       }
+      if (!current() || ticket !== request) return;
+      host.invalidateUsage();
+      dirty.delete(formId);
+      $(messageId).textContent = "選択した範囲に保存しました。";
     } catch (error) {
-      if (current() && atRequest === request)
+      if (current()) {
+        ready = false;
         $(messageId).textContent =
           host.errorText(error) +
-          " 保存結果が不明な場合は「状態を更新」で確認してください。";
+          " 保存結果が不明な場合は状態を更新してください。";
+      }
     } finally {
-      if (current() && atRequest === request) {
+      if (current()) {
         saving = false;
-        unlock();
+        enableSettings(ready);
+        $("operations-target").disabled = false;
       }
     }
   }
-  $("reload-operations").onclick = () => load(true);
-  $("maintenance-controls").onsubmit = (event) => {
-    event.preventDefault();
+  const fail = (id, error) => ($(id).textContent = host.errorText(error));
+  $("maintenance-controls").onsubmit = (e) => {
+    e.preventDefault();
     try {
-      const text = $("maintenance-admin-message").value.trim(),
-        enabled = $("maintenance-enabled").checked;
+      const text = $("maintenance-admin-message").value.trim();
       if (!text || text.length > 500)
-        throw Error("案内文を1～500文字で入力してください。");
-      const ends = W.utcDate($("maintenance-ends-at").value);
-      save(
-        forms[0],
-        "maintenance-save-message",
-        "card_admin_set_maintenance",
-        { p_enabled: enabled, p_message: text, p_ends_at: ends },
-        (data) => {
-          if (data?.maintenance !== enabled)
-            throw Error("保存結果を確認できませんでした。");
-          maintenanceStatus(data);
-        },
-      );
+        throw Error("案内文は1〜500文字で入力してください。");
+      save(forms[0], "maintenance-save-message", "card_admin_set_maintenance", {
+        p_enabled: $("maintenance-enabled").checked,
+        p_message: text,
+        p_ends_at: W.utcDate($("maintenance-ends-at").value),
+      });
     } catch (error) {
-      $("maintenance-save-message").textContent = host.errorText(error);
+      fail("maintenance-save-message", error);
     }
   };
   $("maintenance-stop").onclick = () =>
-    save(
-      forms[0],
-      "maintenance-save-message",
-      "card_admin_set_maintenance",
-      {
-        p_enabled: false,
-        p_message:
-          maintenance?.message ||
-          "ただ今システムのメンテナンスをしていますので、アルバムを開けません。",
-        p_ends_at: null,
-      },
-      (data) => {
-        if (data?.maintenance !== false)
-          throw Error("解除結果を確認できませんでした。");
-        maintenanceStatus(data);
-      },
-    );
-  $("registration-controls").onsubmit = (event) => {
-    event.preventDefault();
+    save(forms[0], "maintenance-save-message", "card_admin_set_maintenance", {
+      p_enabled: false,
+      p_message: maintenance?.message || "メンテナンス中です。",
+      p_ends_at: null,
+    });
+  $("registration-controls").onsubmit = (e) => {
+    e.preventDefault();
     const mode = $("registration-mode").value,
       text = $("registration-message").value.trim(),
-      value = $("registration-db-limit").value;
-    const limit = value === "" ? null : Number(value) * 1000000;
+      raw = $("registration-db-limit").value;
+    const limit = raw === "" ? null : Number(raw) * 1000000;
     if (
       !["open", "invitation", "closed"].includes(mode) ||
       !text ||
@@ -268,8 +522,10 @@ window.ADMIN_WORKFLOW.mount((host) => {
           limit < 1000000 ||
           limit > 1099511627776))
     ) {
-      $("registration-save-message").textContent =
-        "受付方法・案内文・容量の設定を確認してください。";
+      fail(
+        "registration-save-message",
+        Error("受付方法・案内文・容量を確認してください。"),
+      );
       return;
     }
     save(
@@ -277,34 +533,83 @@ window.ADMIN_WORKFLOW.mount((host) => {
       "registration-save-message",
       "card_admin_set_registration_mode",
       { p_mode: mode, p_message: text, p_database_limit_bytes: limit },
-      (data) => {
-        if (!data || data.mode !== mode)
-          throw Error("受付方法の保存結果を確認できませんでした。");
-        configuredRegistrationMode = mode;
-        registrationStatus(data);
+    );
+  };
+  $("registration-capacity-controls").onsubmit = (e) => {
+    e.preventDefault();
+    const minutes = Number($("registration-capacity-minutes").value),
+      maximum = Number($("registration-capacity-maximum").value);
+    if (
+      !Number.isInteger(minutes) ||
+      minutes < 1 ||
+      minutes > 1440 ||
+      !Number.isInteger(maximum) ||
+      maximum < 1 ||
+      maximum > 10000
+    ) {
+      fail(
+        "registration-capacity-message",
+        Error("集計期間は1〜1440分、発行数は1〜10000件で入力してください。"),
+      );
+      return;
+    }
+    save(
+      forms[2],
+      "registration-capacity-message",
+      "card_admin_registration_capacity_save",
+      {
+        p_enabled: $("registration-capacity-enabled").checked,
+        p_window_minutes: minutes,
+        p_max_registrations: maximum,
       },
     );
   };
-  $("registration-capacity-controls").onsubmit = (event) => {
-    event.preventDefault();
-    const minutes = Number($("registration-capacity-minutes").value), maximum = Number($("registration-capacity-maximum").value);
-    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440 || !Number.isInteger(maximum) || maximum < 1 || maximum > 10000) {
-      $("registration-capacity-message").textContent = "期間は1〜1440分、人数は1〜10000人で入力してください。"; return;
+  $("cleanup-controls").onsubmit = (e) => {
+    e.preventDefault();
+    const days = Number($("cleanup-days").value);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) {
+      fail(
+        "cleanup-message",
+        Error("未利用日数は1〜3650日で入力してください。"),
+      );
+      return;
     }
-    save(forms[2], "registration-capacity-message", "card_admin_registration_capacity_save", {p_enabled:$("registration-capacity-enabled").checked,p_window_minutes:minutes,p_max_registrations:maximum,p_revision:capacityRevision}, renderCapacity);
+    save(
+      "cleanup-controls",
+      "cleanup-message",
+      "card_admin_cleanup_save_v179",
+      { p_enabled: $("cleanup-enabled").checked, p_inactive_days: days },
+    );
   };
-  $("guest-browse-controls").onsubmit = (event) => {
-    event.preventDefault();
+  $("guest-browse-controls").onsubmit = (e) => {
+    e.preventDefault();
     save(forms[3], "guest-browse-message", "card_admin_guest_browse_save", {
       p_enabled: $("guest-browse-enabled").checked,
       p_revision: guestBrowseRevision,
-    }, renderGuestBrowse);
+    });
   };
   $("registration-free-preset").onclick = () => {
     $("registration-db-limit").value = "450";
     dirty.add(forms[1]);
-    $("registration-save-message").textContent =
-      "停止基準に450MBを入力しました。保存すると反映されます。";
+  };
+  $("qr-global-unlimited").addEventListener("change", () => {
+    $("qr-global-limit").disabled = $("qr-global-unlimited").checked || !ready;
+  });
+  $("qr-global-controls").onsubmit = (e) => {
+    e.preventDefault();
+    const limit = $("qr-global-unlimited").checked
+      ? null
+      : Number($("qr-global-limit").value);
+    if (
+      limit !== null &&
+      (!Number.isInteger(limit) || limit < 0 || limit > 100000)
+    ) {
+      fail("qr-global-message", Error("上限は0〜100000件で入力してください。"));
+      return;
+    }
+    save("qr-global-controls", "qr-global-message", "card_qr_admin_limit", {
+      p_limit: limit,
+    });
   };
   let invitationBusy = false,
     invitationEpoch = 0;
@@ -527,6 +832,10 @@ ${url}`;
     maintenance = null;
     capacityRevision = guestBrowseRevision = null;
     configuredRegistrationMode = null;
+    snapshots = [];
+    entries = [];
+    scope = "all";
+    $("operations-overview").replaceChildren();
     forms.forEach((id) => $(id).reset());
     root.querySelectorAll("button,input,select,textarea").forEach((control) => {
       control.disabled = false;

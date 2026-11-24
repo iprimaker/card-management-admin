@@ -129,10 +129,8 @@
     }
     if (config.publicSiteUrl) $("public-site-link").href = config.publicSiteUrl;
     else $("public-site-link").hidden = true;
-    const db = window.CARD_OPS_ADMIN.wrap(window.supabase.createClient(
-      config.supabaseUrl,
-      config.supabaseKey,
-      {
+    const db = window.CARD_OPS_ADMIN.wrap(
+      window.supabase.createClient(config.supabaseUrl, config.supabaseKey, {
         auth: {
           storageKey:
             "card-album-admin-auth:" +
@@ -141,8 +139,8 @@
           persistSession,
         },
         global: { fetch: boundedFetch },
-      },
-    ));
+      }),
+    );
     let session = null,
       authorized = false,
       generation = 0,
@@ -2112,7 +2110,10 @@
             ["認証API", "/auth/v1/settings"],
             ["カードDB", "/rest/v1/card_catalog?select=id&limit=1"],
           ].map(async ([label, path]) => {
-            if (label === "カードDB" && (!authorized || !session?.access_token)) {
+            if (
+              label === "カードDB" &&
+              (!authorized || !session?.access_token)
+            ) {
               return "管理DB：管理者ログイン・二段階認証の完了後に確認します。";
             }
             const controller = new AbortController();
@@ -2122,7 +2123,8 @@
                 headers: {
                   apikey: config.supabaseKey,
                   ...(label === "カードDB" && session?.access_token
-                    ? { Authorization: "Bearer " + session.access_token } : {}),
+                    ? { Authorization: "Bearer " + session.access_token }
+                    : {}),
                 },
                 signal: controller.signal,
                 cache: "no-store",
@@ -2169,7 +2171,9 @@
         const identifier = $("admin-email").value.normalize("NFKC").trim();
         let email = identifier.toLowerCase();
         if (!identifier.includes("@")) {
-          throw Error("運営用DBに作成した管理者のメールアドレスを入力してください。");
+          throw Error(
+            "運営用DBに作成した管理者のメールアドレスを入力してください。",
+          );
         }
         const { data, error } = await db.auth.signInWithPassword({
           email,
@@ -2318,10 +2322,7 @@
       } = {},
     ) {
       if (!authorized || !session) throw Error("ログインし直してください。");
-      if (
-        action === "delete-user" &&
-        body?.database
-      ) {
+      if (action === "delete-user" && body?.database) {
         if (!window.CARD_ADMIN_SHARDS)
           throw Error("DB管理機能を再読み込みしてください。");
         return window.CARD_ADMIN_SHARDS.deleteUser(body);
@@ -2396,7 +2397,7 @@
         $("contact-list").innerHTML = messages
           .map(
             (row) =>
-              `<details class="contact-message status-${["new", "working", "done"].includes(row.status) ? row.status : "new"}"><summary><span class="status-label">${{ new: "未対応", working: "対応中", done: "対応済み" }[row.status] || "未対応"}</span><h2>${esc(categories[row.category] || "お問い合わせ")}</h2><time>${esc(timestamp(row.created_at))}</time></summary><p class="contact-meta">${esc(row.name || "お名前未記入")}<br>${esc(row.album_id ? "アルバムID：" + row.album_id : row.email)}<br>${esc(timestamp(row.created_at))}</p><p class="contact-id">受付番号：${esc(row.id)}</p><div class="message-body">${esc(row.message)}</div><div class="contact-actions"><select aria-label="対応状況" data-contact-status="${esc(row.id)}">${[
+              `<details class="contact-message status-${["new", "working", "done"].includes(row.status) ? row.status : "new"}"><summary><span class="status-label">${{ new: "未対応", working: "対応中", done: "対応済み" }[row.status] || "未対応"}</span><h2>${esc(categories[row.category] || "お問い合わせ")}</h2><time>${esc(timestamp(row.created_at))}</time></summary><p class="contact-meta"><span class="contact-database">${esc(row.database_label || "")}</span><br>${esc(row.name || "お名前未記入")}<br>${esc(row.album_id ? "アルバムID：" + row.album_id : row.email)}<br>${esc(timestamp(row.created_at))}</p><p class="contact-id">受付番号：${esc(row.id)}</p><div class="message-body">${esc(row.message)}</div><div class="contact-actions"><select aria-label="対応状況" data-contact-status="${esc(row.id)}">${[
                 ["new", "未対応"],
                 ["working", "対応中"],
                 ["done", "対応済み"],
@@ -2667,7 +2668,8 @@
       }
     }
     async function loadUsage() {
-      if (window.CARD_ADMIN_SHARDS?.loadUsage) return window.CARD_ADMIN_SHARDS.loadUsage();
+      if (window.CARD_ADMIN_SHARDS?.loadUsage)
+        return window.CARD_ADMIN_SHARDS.loadUsage();
       if (!authorized || usageBusy) return;
       usageBusy = true;
       const current = generation;

@@ -6,10 +6,11 @@
     <meta content="noindex,nofollow" name="robots" />
     <title>カードアルバム管理</title>
     <link href="./icon.png" rel="icon" />
-    <link rel="stylesheet" href="./admin-statistics.css?v=20261124-v162">
+    <link rel="stylesheet" href="./admin-statistics.css?v=20261124-v162" />
     <link href="./admin.css?v=20261123-v150" rel="stylesheet" />
     <link rel="stylesheet" href="./admin-shards.css?v=20261123-v150" />
     <link rel="stylesheet" href="./operations-connection.css?v=20261123-v150" />
+    <link rel="stylesheet" href="./admin-management.css?v=20261124-v179" />
     <script src="./startup.js?v=20261117-admin-catalog-v1"></script>
     <script
       defer=""
@@ -18,11 +19,17 @@
     <script defer="" src="./config.js?v=20261123-v150"></script>
     <script defer="" src="./catalog-cache.js?v=20261123-v150"></script>
     <script defer src="./primagi.js?v=20261117-admin-catalog-v1"></script>
-    <script defer src="./admin-workflow.js?v=20261117-admin-catalog-v1"></script>
-    <script defer src="./card-image-transform.js?v=20261117-image-adjust-v1"></script>
-    <script defer src="./operations-connection.js?v=20261124-v162"></script>
-    <script defer="" src="./admin.js?v=20261124-v162"></script>
-    <script defer src="./admin-shards.js?v=20261124-v162"></script>
+    <script
+      defer
+      src="./admin-workflow.js?v=20261117-admin-catalog-v1"
+    ></script>
+    <script
+      defer
+      src="./card-image-transform.js?v=20261117-image-adjust-v1"
+    ></script>
+    <script defer src="./operations-connection.js?v=20261124-v179"></script>
+    <script defer="" src="./admin.js?v=20261124-v179"></script>
+    <script defer src="./admin-shards.js?v=20261124-v179"></script>
     <link rel="apple-touch-icon" href="./icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="アルバム運営" />
@@ -51,7 +58,21 @@
         </div>
       </div>
       <div hidden="" id="admin-nav">
-        <button type="button" data-page="visibility"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"></rect><path d="m8 12 3 3 5-6"></path><path d="M8 7h5"></path></svg><span>公開設定・承認</span></button>
+        <button type="button" data-page="visibility">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="4" y="3" width="16" height="18" rx="3"></rect>
+            <path d="m8 12 3 3 5-6"></path>
+            <path d="M8 7h5"></path></svg
+          ><span>公開設定・承認</span>
+        </button>
         <button class="active" data-page="users">
           <svg
             viewBox="0 0 24 24"
@@ -94,7 +115,20 @@
           >
             <path d="M4 5h16v14H4z M8 9h8 M8 13h5 M8 16h8"></path></svg
           >コーデ情報</button
-        ><button type="button" data-page="manual"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"></rect><path d="M12 8v8M8 12h8"></path></svg><span>手動追加</span></button><button type="button" data-page="imports">
+        ><button type="button" data-page="manual">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="4" y="3" width="16" height="18" rx="3"></rect>
+            <path d="M12 8v8M8 12h8"></path></svg
+          ><span>手動追加</span></button
+        ><button type="button" data-page="imports">
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -141,7 +175,20 @@
             hidden=""
             id="contact-alert"
           ></span></button
-        ><button type="button" data-page="statistics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v9h9A9 9 0 0 0 12 3Z"></path><path d="M8 4a9 9 0 1 0 12 12"></path></svg><span>統計</span></button>
+        ><button type="button" data-page="statistics">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 3v9h9A9 9 0 0 0 12 3Z"></path>
+            <path d="M8 4a9 9 0 1 0 12 12"></path></svg
+          ><span>統計</span>
+        </button>
         <button data-page="usage">
           <svg
             viewBox="0 0 24 24"
@@ -250,32 +297,35 @@
               ><button hidden="" id="reload-cards">再表示</button>
             </div>
           </div>
-          <p id="card-management-help">登録済みカードを検索し、情報の編集や削除ができます。</p>
+          <p id="card-management-help">
+            登録済みカードを検索し、情報の編集や削除ができます。
+          </p>
           <div id="manual-entry-tools" hidden>
-          <article
-            aria-labelledby="sync-progress-title"
-            class="sync-progress-panel"
-          >
-            <div class="section-heading">
-              <h2 id="sync-progress-title">手動カード登録状況</h2>
-              <button hidden="" id="refresh-sync-progress" type="button">
-                状況を確認
-              </button>
+            <article
+              aria-labelledby="sync-progress-title"
+              class="sync-progress-panel"
+            >
+              <div class="section-heading">
+                <h2 id="sync-progress-title">手動カード登録状況</h2>
+                <button hidden="" id="refresh-sync-progress" type="button">
+                  状況を確認
+                </button>
+              </div>
+              <p id="sync-progress-status" role="status">確認中…</p>
+              <div class="sync-progress-counts" id="sync-progress-counts"></div>
+              <p class="muted" id="sync-progress-time"></p>
+              <p class="muted" hidden="">
+                ページ単位の進捗です。新しい取得先が見つかると総数が増え、％が下がる場合があります。画像の文字読み取りは含みません。
+              </p>
+            </article>
+            <div class="pending-tools">
+              <button type="button" id="pending-new" class="primary">
+                カード候補を追加</button
+              ><button type="button" id="pending-refresh">
+                カード候補を更新</button
+              ><button type="button" id="manual-verse-new">コーデを追加</button
+              ><span>カード候補は正式登録するまで一般側には表示されません</span>
             </div>
-            <p id="sync-progress-status" role="status">確認中…</p>
-            <div class="sync-progress-counts" id="sync-progress-counts"></div>
-            <p class="muted" id="sync-progress-time"></p>
-            <p class="muted" hidden="">
-              ページ単位の進捗です。新しい取得先が見つかると総数が増え、％が下がる場合があります。画像の文字読み取りは含みません。
-            </p>
-          </article>
-          <div class="pending-tools">
-            <button type="button" id="pending-new" class="primary">
-              カード候補を追加</button
-            ><button type="button" id="pending-refresh">
-              カード候補を更新</button
-            ><button type="button" id="manual-verse-new">コーデを追加</button><span>カード候補は正式登録するまで一般側には表示されません</span>
-          </div>
           </div>
           <div class="search-row">
             <input
@@ -364,7 +414,37 @@
                 <option value="public">公開中</option>
                 <option value="private">発行済み・全て非公開</option>
               </select></label
-            ><label>QR登録数<select id="user-qr-filter"><option value="all">すべて</option><option value="yes">登録あり（1件以上）</option><option value="no">未登録（0件）</option><option value="range">件数を指定</option></select></label><span id="user-qr-range" hidden style="display:flex;align-items:center;gap:6px"><label>最小件数<input id="user-qr-min" type="number" min="0" max="2147483647" step="1" placeholder="指定なし" style="width:110px"></label><span>〜</span><label>最大件数<input id="user-qr-max" type="number" min="0" max="2147483647" step="1" placeholder="指定なし" style="width:110px"></label></span><button type="button" id="user-filter-reset">条件を解除</button>
+            ><label
+              >QR登録数<select id="user-qr-filter">
+                <option value="all">すべて</option>
+                <option value="yes">登録あり（1件以上）</option>
+                <option value="no">未登録（0件）</option>
+                <option value="range">件数を指定</option>
+              </select></label
+            ><span
+              id="user-qr-range"
+              hidden
+              style="display: flex; align-items: center; gap: 6px"
+              ><label
+                >最小件数<input
+                  id="user-qr-min"
+                  type="number"
+                  min="0"
+                  max="2147483647"
+                  step="1"
+                  placeholder="指定なし"
+                  style="width: 110px" /></label
+              ><span>〜</span
+              ><label
+                >最大件数<input
+                  id="user-qr-max"
+                  type="number"
+                  min="0"
+                  max="2147483647"
+                  step="1"
+                  placeholder="指定なし"
+                  style="width: 110px" /></label></span
+            ><button type="button" id="user-filter-reset">条件を解除</button>
           </div>
           <details class="user-state-help">
             <summary>状態の判定について</summary>
@@ -506,7 +586,7 @@
         </section>
         <section hidden="" id="admin-contacts">
           <div class="section-heading">
-            <h1>お問い合わせ</h1>
+            <h1>お問い合わせ <small>全登録者DB</small></h1>
             <button id="reload-contacts">更新</button>
           </div>
           <div class="contact-filter">
@@ -527,7 +607,7 @@
           </div>
         </section>
         <section id="admin-statistics" hidden></section>
-      <section hidden="" id="admin-usage">
+        <section hidden="" id="admin-usage">
           <div class="section-heading">
             <h1>使用状況</h1>
             <button id="reload-usage">使用状況を更新</button>
@@ -658,6 +738,18 @@
             <button type="button" id="reload-operations">状態を更新</button>
           </div>
           <p class="muted">一般サイトの運用と、新規登録の受付を管理します。</p>
+          <div class="operations-scope">
+            <label
+              >設定の適用先<select id="operations-target" disabled>
+                <option value="all">すべての登録者DB</option>
+              </select></label
+            >
+            <p>各設定の保存ボタンで、選択した範囲へまとめて反映します。</p>
+          </div>
+          <details class="operations-overview">
+            <summary>DBごとの現在の設定</summary>
+            <div id="operations-overview"></div>
+          </details>
           <p id="operations-status" role="status" aria-live="polite"></p>
           <div class="operations-grid">
             <article class="usage-panel">
@@ -714,12 +806,20 @@
               <h2>新規登録の受付</h2>
               <p class="registration-state" id="registration-state"></p>
               <form id="registration-controls">
-                <label>受付方法<select disabled id="registration-mode" aria-describedby="registration-mode-help">
-                  <option value="open">ON：通常登録を受付</option>
-                  <option value="invitation">OFF：招待のみ受付</option>
-                  <option value="closed">OFF：招待も停止</option>
-                </select></label>
-                <p class="muted" id="registration-mode-help">招待のみ受付：新規登録画面に案内とXボタンを表示します。招待も停止：Xボタンを表示せず、招待URLからの登録と開始済みの招待登録の完了も停止します。</p>
+                <label
+                  >受付方法<select
+                    disabled
+                    id="registration-mode"
+                    aria-describedby="registration-mode-help"
+                  >
+                    <option value="open">ON：通常登録を受付</option>
+                    <option value="invitation">OFF：招待のみ受付</option>
+                    <option value="closed">OFF：招待も停止</option>
+                  </select></label
+                >
+                <p class="muted" id="registration-mode-help">
+                  招待のみ受付：新規登録画面に案内とXボタンを表示します。招待も停止：Xボタンを表示せず、招待URLからの登録と開始済みの招待登録の完了も停止します。
+                </p>
                 <label
                   >受付停止時の案内文<textarea
                     id="registration-message"
@@ -751,37 +851,184 @@
             </article>
             <article class="usage-panel">
               <h2>通常登録のID発行制限</h2>
-              <p class="muted">通常のアルバムIDを発行した時刻から集計します。発行済みのIDは有効期限内に登録を続けられます。招待登録は対象外です。</p>
+              <p class="muted">
+                通常のアルバムIDを発行した時刻から集計します。発行済みのIDは有効期限内に登録を続けられます。招待登録は対象外です。
+              </p>
               <form id="registration-capacity-controls">
-                <label class="capacity-enabled"><input id="registration-capacity-enabled" type="checkbox">ID発行制限を有効にする</label>
+                <label class="capacity-enabled"
+                  ><input
+                    id="registration-capacity-enabled"
+                    type="checkbox"
+                  />ID発行制限を有効にする</label
+                >
                 <div class="registration-capacity-fields">
-                  <label>ID発行の集計期間（分）<input id="registration-capacity-minutes" type="number" min="1" max="1440" step="1" value="10" required></label>
-                  <label>最大発行数（件）<input id="registration-capacity-maximum" type="number" min="1" max="10000" step="1" value="10" required></label>
+                  <label
+                    >ID発行の集計期間（分）<input
+                      id="registration-capacity-minutes"
+                      type="number"
+                      min="1"
+                      max="1440"
+                      step="1"
+                      value="10"
+                      required
+                  /></label>
+                  <label
+                    >最大発行数（件）<input
+                      id="registration-capacity-maximum"
+                      type="number"
+                      min="1"
+                      max="10000"
+                      step="1"
+                      value="10"
+                      required
+                  /></label>
                 </div>
                 <p class="muted" id="registration-capacity-state"></p>
-                <p class="muted">人数を減らしても既存アカウントは削除しません。設定変更で集計記録はリセットされません。</p>
-                <button class="primary" id="registration-capacity-save" disabled>発行制限を保存</button>
+                <p class="muted">
+                  人数を減らしても既存アカウントは削除しません。設定変更で集計記録はリセットされません。
+                </p>
+                <button
+                  class="primary"
+                  id="registration-capacity-save"
+                  disabled
+                >
+                  発行制限を保存
+                </button>
                 <p id="registration-capacity-message" role="status"></p>
               </form>
             </article>
+            <article class="usage-panel" data-qr-global>
+              <h2>QRコードの登録上限</h2>
+              <p id="qr-global-state" class="registration-state"></p>
+              <form id="qr-global-controls">
+                <label class="registration-toggle"
+                  ><input
+                    id="qr-global-unlimited"
+                    type="checkbox"
+                    disabled
+                  />上限なし</label
+                >
+                <label
+                  >1人あたりの上限数<input
+                    id="qr-global-limit"
+                    type="number"
+                    min="0"
+                    max="100000"
+                    value="100"
+                    required
+                    disabled
+                /></label>
+                <p class="muted">
+                  0件にすると新規QR登録を停止します。上限を下げても登録済みQRは削除されません。個別の上限は登録者一覧で設定できます。
+                </p>
+                <button class="primary" disabled>上限を保存</button>
+                <p id="qr-global-message" role="status"></p>
+              </form>
+            </article>
             <article class="usage-panel">
-              <h2>ログインせずに利用</h2>
+              <h2>アカウントの自動削除</h2>
+              <p id="cleanup-state" class="registration-state">設定を確認中…</p>
+              <form id="cleanup-controls">
+                <label class="registration-toggle"
+                  ><input
+                    type="checkbox"
+                    id="cleanup-enabled"
+                    disabled
+                  />自動削除を有効にする</label
+                >
+                <label
+                  >最終利用からの日数<input
+                    type="number"
+                    id="cleanup-days"
+                    min="1"
+                    max="3650"
+                    value="30"
+                    required
+                    disabled
+                /></label>
+                <p class="muted">
+                  OFFの間は、未利用期間にかかわらず自動削除しません。ONにすると、指定日数を超えた利用者を既存の定期処理で削除します。管理者は対象外です。保存した時点では削除しません。
+                </p>
+                <button class="primary" disabled>設定を保存</button>
+                <p id="cleanup-message" role="status"></p>
+              </form>
+            </article>
+            <article class="usage-panel">
+              <h2>ログインせずに利用 <small>全サイト共通</small></h2>
               <form id="guest-browse-controls">
-                <label class="registration-toggle"><input id="guest-browse-enabled" type="checkbox" disabled>ログインせずに利用できるようにする</label>
+                <label class="registration-toggle"
+                  ><input
+                    id="guest-browse-enabled"
+                    type="checkbox"
+                    disabled
+                  />ログインせずに利用できるようにする</label
+                >
                 <p id="guest-browse-state" role="status">設定を確認中…</p>
-                <p class="muted">停止するとログイン画面の「ログインせずに利用」を非表示にし、カード検索の閲覧専用ページに停止中の案内を表示します。ログイン後のアルバムと共有URLは引き続き利用できます。</p>
-                <button class="primary" id="guest-browse-save" disabled>設定を保存</button>
+                <p class="muted">
+                  停止するとログイン画面の「ログインせずに利用」を非表示にし、カード検索の閲覧専用ページに停止中の案内を表示します。ログイン後のアルバムと共有URLは引き続き利用できます。
+                </p>
+                <button class="primary" id="guest-browse-save" disabled>
+                  設定を保存
+                </button>
                 <p id="guest-browse-message" role="status"></p>
               </form>
             </article>
             <article class="usage-panel">
-              <div class="section-heading"><h2>フォロワー向けの招待</h2><button type="button" id="invitation-reload">更新</button></div>
-              <p class="muted">1人につき1つ発行してください。「招待のみ受付」のときも登録できます。「招待も停止」では登録できません。URLは一度開くと使用済みになります。</p>
-              <p class="muted">再読み込み・再アクセスで再開できません。招待URLの再発行はいたしかねます。</p>
-              <form id="invitation-create"><label>URLの有効期限（日）<input id="invitation-days" type="number" min="1" max="30" value="7" required></label><button class="primary" id="invitation-issue">招待URLを発行</button></form>
-              <div id="invitation-result" hidden><label>発行した招待URL<input id="invitation-url" type="text" readonly autocomplete="off" spellcheck="false"></label><label>送信用の案内文<textarea id="invitation-copy-text" rows="8" readonly spellcheck="false"></textarea></label><button type="button" id="invitation-copy">案内文とURLをコピー</button><p class="muted">この画面を閉じるとURLは再表示できません。相手に送る前に、このURLを開かないでください。</p></div>
+              <div class="section-heading">
+                <h2>フォロワー向けの招待</h2>
+                <button type="button" id="invitation-reload">更新</button>
+              </div>
+              <p class="muted">
+                1人につき1つ発行してください。「招待のみ受付」のときも登録できます。「招待も停止」では登録できません。URLは一度開くと使用済みになります。
+              </p>
+              <p class="muted">
+                再読み込み・再アクセスで再開できません。招待URLの再発行はいたしかねます。
+              </p>
+              <label class="invitation-database"
+                >招待の発行・一覧のDB<select
+                  id="invitation-database"
+                  disabled
+                ></select
+              ></label>
+              <form id="invitation-create">
+                <label
+                  >URLの有効期限（日）<input
+                    id="invitation-days"
+                    type="number"
+                    min="1"
+                    max="30"
+                    value="7"
+                    required /></label
+                ><button class="primary" id="invitation-issue">
+                  招待URLを発行
+                </button>
+              </form>
+              <div id="invitation-result" hidden>
+                <label
+                  >発行した招待URL<input
+                    id="invitation-url"
+                    type="text"
+                    readonly
+                    autocomplete="off"
+                    spellcheck="false" /></label
+                ><label
+                  >送信用の案内文<textarea
+                    id="invitation-copy-text"
+                    rows="8"
+                    readonly
+                    spellcheck="false"
+                  ></textarea></label
+                ><button type="button" id="invitation-copy">
+                  案内文とURLをコピー
+                </button>
+                <p class="muted">
+                  この画面を閉じるとURLは再表示できません。相手に送る前に、このURLを開かないでください。
+                </p>
+              </div>
               <p role="status" id="invitation-message"></p>
-              <div id="invitation-list" class="muted">直近100件の招待状況を表示します。</div>
+              <div id="invitation-list" class="muted">
+                直近100件の招待状況を表示します。
+              </div>
             </article>
           </div>
         </section>
@@ -794,9 +1041,7 @@
               </button>
             </div>
           </div>
-          <p>
-            登録済みコーデを検索し、コーデと構成部位の情報を編集できます。
-          </p>
+          <p>登録済みコーデを検索し、コーデと構成部位の情報を編集できます。</p>
           <div class="search-row verse-search-row">
             <input
               id="verse-admin-query"
@@ -806,7 +1051,8 @@
             /><select id="verse-admin-family" aria-label="シリーズ">
               <option value="all">すべて</option>
               <option value="onegai">おねがいアイプリバース</option>
-              <option value="primagi">プリマジ</option><option value="himitsu">ひみつのアイプリバース</option></select
+              <option value="primagi">プリマジ</option>
+              <option value="himitsu">ひみつのアイプリバース</option></select
             ><button type="button" id="verse-admin-search">検索</button>
           </div>
           <p class="muted" id="verse-admin-status" role="status"></p>
@@ -834,13 +1080,54 @@
             <div class="edit-fields" id="edit-fields"></div>
             <fieldset class="card-crop-editor">
               <legend>表面画像の表示範囲</legend>
-              <label><input type="checkbox" id="edit-front-crop"> 表面画像をトリミング・回転する</label>
-              <div class="card-crop-controls" id="edit-front-crop-controls" hidden>
-                <label>左右の位置（%）<input name="crop-x" type="number" min="-1000" max="1000" step="any" value="0"></label>
-                <label>上下の位置（%）<input name="crop-y" type="number" min="-1000" max="1000" step="any" value="0"></label>
-                <label>拡大率（倍率）<input name="crop-zoom" type="number" min="0.25" max="20" step="any" value="1"></label>
-                <label>回転（°）<input name="crop-angle" type="number" min="-180" max="180" step="any" value="0"></label>
-                <button id="edit-front-crop-reset" type="button">初期値に戻す</button>
+              <label
+                ><input type="checkbox" id="edit-front-crop" />
+                表面画像をトリミング・回転する</label
+              >
+              <div
+                class="card-crop-controls"
+                id="edit-front-crop-controls"
+                hidden
+              >
+                <label
+                  >左右の位置（%）<input
+                    name="crop-x"
+                    type="number"
+                    min="-1000"
+                    max="1000"
+                    step="any"
+                    value="0"
+                /></label>
+                <label
+                  >上下の位置（%）<input
+                    name="crop-y"
+                    type="number"
+                    min="-1000"
+                    max="1000"
+                    step="any"
+                    value="0"
+                /></label>
+                <label
+                  >拡大率（倍率）<input
+                    name="crop-zoom"
+                    type="number"
+                    min="0.25"
+                    max="20"
+                    step="any"
+                    value="1"
+                /></label>
+                <label
+                  >回転（°）<input
+                    name="crop-angle"
+                    type="number"
+                    min="-180"
+                    max="180"
+                    step="any"
+                    value="0"
+                /></label>
+                <button id="edit-front-crop-reset" type="button">
+                  初期値に戻す
+                </button>
               </div>
             </fieldset>
           </div>
@@ -1123,11 +1410,9 @@
       </div>
     </dialog>
     <script defer src="./admin-statistics.js?v=20261124-v162"></script>
-    <script defer src="./admin-operations.js?v=20261123-v150"></script>
-    <script
-      defer
-      src="./card-visibility-admin.js?v=20261117-admin-catalog-v1"
-    ></script>
-    <script defer src="./private-qr-admin.js?v=20261124-v162"></script>
-  <script defer src="./maintenance-warning-admin.js?v=20261121-v97"></script></body>
+    <script defer src="./admin-operations.js?v=20261124-v179"></script>
+    <script defer src="./card-visibility-admin.js?v=20261124-v179"></script>
+    <script defer src="./private-qr-admin.js?v=20261124-v179"></script>
+    <script defer src="./maintenance-warning-admin.js?v=20261124-v179"></script>
+  </body>
 </html>

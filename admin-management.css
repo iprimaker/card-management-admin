@@ -1,0 +1,223 @@
+/* v179: compact DB context and operations overview; existing admin palette retained. */
+.ops-connection[hidden],
+.ops-sync-notice[hidden] {
+  display: none !important;
+}
+.ops-connection {
+  margin: 12px 0 20px;
+  padding: 12px 16px;
+  background: #fff;
+  border-radius: 12px;
+}
+.ops-connection-top {
+  gap: 12px;
+  justify-content: space-between;
+}
+.ops-connection label {
+  font-weight: 600;
+}
+.ops-connection select {
+  min-width: 150px;
+  max-width: 100%;
+  background: #fff;
+}
+.ops-connection-status {
+  font-size: 12px;
+  color: #82728f;
+}
+.ops-sync-notice:not(:empty) {
+  padding: 12px 16px;
+  border: 1px solid #e5daee;
+  border-radius: 12px;
+  background: #faf7fd;
+  color: #695479;
+  font-size: 13px;
+}
+#admin-users .shard-panel {
+  padding: 22px;
+}
+#admin-users .shard-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 18px 0 0;
+}
+#admin-users .shard-stat {
+  padding: 15px 18px;
+}
+#admin-users .shard-stat strong {
+  font-size: clamp(21px, 2.7vw, 30px);
+  letter-spacing: -0.025em;
+}
+#admin-users .shard-config {
+  align-items: end;
+  gap: 16px;
+  background: #fbf9fd;
+}
+#admin-users .shard-config > label:first-child {
+  flex: 1 1 160px;
+  max-width: 260px;
+}
+#admin-users .shard-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+}
+#admin-users .shard-config button {
+  margin-left: auto;
+  background: #7959a5;
+  color: white;
+  border-color: #7959a5;
+}
+.operations-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  padding: 18px 20px;
+  margin: 18px 0 12px;
+  border: 1px solid #e2d7ed;
+  border-radius: 14px;
+  background: #faf7fd;
+}
+.operations-scope label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-weight: 650;
+}
+.operations-scope select,
+.invitation-database select {
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid #d9cce4;
+  border-radius: 9px;
+  background: white;
+  color: #4a3b58;
+  font: inherit;
+  max-width: 100%;
+}
+.operations-scope p {
+  margin: 0;
+  color: #7d6f88;
+  font-size: 12px;
+}
+.operations-overview {
+  margin: 0 0 20px;
+  border: 1px solid #e9e1ef;
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+.operations-overview summary {
+  cursor: pointer;
+  color: #6e5484;
+  font-size: 13px;
+  font-weight: 600;
+}
+#operations-overview {
+  overflow: auto;
+  margin-top: 14px;
+}
+#operations-overview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+#operations-overview th,
+#operations-overview td {
+  padding: 11px 14px;
+  text-align: left;
+  border-bottom: 1px solid #ede7f2;
+}
+#operations-overview th {
+  color: #7d6b8e;
+  background: #faf7fc;
+}
+#admin-operations .usage-panel {
+  min-width: 0;
+}
+#admin-operations h2 small,
+#admin-contacts h1 small {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #887294;
+}
+#admin-operations form label.registration-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+#admin-operations input[type="checkbox"] {
+  accent-color: #7959a5;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+#cleanup-days {
+  max-width: 220px;
+}
+.mixed-settings {
+  padding: 12px 14px;
+  border: 1px solid #eadbc1;
+  background: #fffaf1;
+  color: #81663b;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.invitation-database {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+  max-width: 300px;
+  font-size: 13px;
+  color: #796387;
+}
+.contact-database {
+  display: inline-block;
+  padding: 3px 9px;
+  border: 1px solid #e3d9ec;
+  border-radius: 6px;
+  background: #f8f4fc;
+  color: #7c5e94;
+  font-size: 11px;
+}
+@media (max-width: 600px) {
+  .ops-connection-top {
+    align-items: flex-start;
+  }
+  .ops-connection-status {
+    display: none;
+  }
+  #admin-users .shard-panel {
+    padding: 16px;
+  }
+  #admin-users .shard-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  #admin-users .shard-stat {
+    padding: 12px 8px;
+  }
+  #admin-users .shard-stat strong {
+    font-size: 20px;
+  }
+  #admin-users .shard-stat > span {
+    font-size: 10px;
+  }
+  #admin-users .shard-config > label:first-child {
+    max-width: none;
+  }
+  #admin-users .shard-config button {
+    width: 100%;
+  }
+  .operations-scope {
+    padding: 14px;
+  }
+  .operations-scope label {
+    display: grid;
+    width: 100%;
+    gap: 8px;
+  }
+}
